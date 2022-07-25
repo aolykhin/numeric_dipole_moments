@@ -1,4 +1,5 @@
 from tabulate import tabulate
+import matplotlib.pyplot as plt
 from pyscf import gto, scf, mcscf, lib, lo
 from pyscf.lib import logger
 from mrh.my_pyscf import mcpdft
@@ -11,38 +12,42 @@ import copy
 from colored import fg, attr
 
 
-os.environ['OMP_NUM_THREADS'] = "1"
-os.environ['MKL_NUM_THREADS'] = "1"
-os.environ['OPENBLAS_NUM_THREADS'] = "1"
+
+# os.environ['OMP_NUM_THREADS'] = "1"
+# os.environ['MKL_NUM_THREADS'] = "1"
+# os.environ['OPENBLAS_NUM_THREADS'] = "1"
 
 def cs(text): return fg('light_green')+text+attr('reset')
 
         # ------------------ NUMERICAL DIPOLE MOMENTS ----------------------------
-def numer_run(x, mol, mo, numer, field, formula, ifunc, out):
+def numer_run(x, mol, mo_zero, numer, field, formula, ifunc, out):
 
+    au2D = 2.5417464
+    # Set reference point to be center of charge
     mol.output='num_'+ out
     mol.build()
+    charges = mol.atom_charges()
+    coords  = mol.atom_coords()
+    nuc_charge_center = np.einsum(
+        'z,zx->x', charges, coords) / charges.sum()
+    mol.set_common_orig_(nuc_charge_center)
+    h_field_off = mol.intor('cint1e_kin_sph') + mol.intor('cint1e_nuc_sph')
+    # print(mol.atom)
 
     dip_num = np.zeros((len(field), 1+4*x.iroot))
-
-    for i, f in enumerate(field[:, 0]): #Set field strength
-        au2D = 2.5417464
+    for i, f in enumerate(field[:, 0]): # Over field strengths
         dip_num[i][0]=f # the first column is the field column 
         if formula == "2-point":
             disp = [-f, f]
         elif formula == "4-point":
             disp = [-2*f, -f, f, 2*f]
         e = np.zeros((len(disp),x.iroot))
+        if i==0: #initialize MOs to the zero-field MOs 
+            mo_field = []
+            for icoord in range(3): mo_field.append([mo_zero]*len(disp))
 
-        # Set reference point to be center of charge
-        charges = mol.atom_charges()
-        coords  = mol.atom_coords()
-        nuc_charge_center = np.einsum(
-            'z,zx->x', charges, coords) / charges.sum()
-        mol.set_common_orig_(nuc_charge_center)
-        h_field_off = mol.intor('cint1e_kin_sph') + mol.intor('cint1e_nuc_sph')
-        for j in range(3): #Orient field
-            for k, v in enumerate(disp): #Select point on a stencil
+        for j in range(3): # Over x,y,z directions
+            for k, v in enumerate(disp): # Over stencil points 
                 if j==0:   # X-axis
                     E = [v, 0, 0]
                 elif j==1: # Y-axis
@@ -60,6 +65,12 @@ def numer_run(x, mol, mo, numer, field, formula, ifunc, out):
                 mc = mcpdft.CASSCF(mf_field, ifunc, x.norb, x.nel, grids_level=9)
                 mc.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
                 mc.fcisolver.wfnsym = x.irep
+                mc.fcisolver.max_cycle = 200
+                mc.max_cycle_macro = 200
+                mc.conv_tol=1e-08 
+                mo=mo_zero if i==0 else mo_field[j][k]
+                print('j=%s and k=%s' %(j,k))
+                # print(mo)
 
                 # MC-PDFT 
                 if numer[0] == 'SS-PDFT':
@@ -71,20 +82,25 @@ def numer_run(x, mol, mo, numer, field, formula, ifunc, out):
                     mc=mc.state_interaction(weights,'cms').run(mo)
                     e_cms = mc.e_states.tolist() #List of CMS energies
                     e[k] = e_cms
+                mo_field[j][k] = mc.mo_coeff #save MOs to be used for the next stencil point 
+                if j==0 and k==0:
+                    molden.from_mo(mol, out+'_ORB_00.molden', mc.mo_coeff)
+                if j==0 and k==1:
+                    molden.from_mo(mol, out+'_ORB_01.molden', mc.mo_coeff)
 
-            for m in range(x.iroot):
+            for m in range(x.iroot): # Over CMS states
                 shift=1+m*4 # shift to the next state by 4m columns (x,y,z,mu) and one field column
                 if formula == "2-point":
                     dip_num[i,j+shift] = (-1)*au2D*(-e[0][m]+e[1][m])/(2*f)  # 2-point
-                    # dip_num[i,j+shift] = (-1)*au2D*(-e[m][0]+e[m][1])/(2*f)  # 2-point
                 elif formula == "4-point":
                     dip_num[i,j+shift] = (-1)*au2D*(e[0][m]-8*e[1][m]+8*e[2][m]-e[3][m])/(12*f)  # 4-point
-                    # dip_num[i,j+shift] = (-1)*au2D*(e[m][0]-8*e[m][1]+8*e[m][2]-e[m][3])/(12*f)  # 4-point
         
         # Get absolute dipole moment    
         for m in range(x.iroot):
             shift=1+m*4 # shift to the next state by 4m columns (x,y,z,mu) and one field column    
             dip_num[i,3+shift] = np.linalg.norm(dip_num[i,0+shift:3+shift])
+
+            
     return dip_num
 
 def init_guess(y):
@@ -119,7 +135,7 @@ def init_guess(y):
 
 #-------------Compute energies and dipoles for the given geometry-----------
 def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
-    out = x.iname+'_cas_'+f"{dist:.2f}"
+    out = x.iname+'_'+f"{dist:.2f}"
     mol = gto.M(atom=x.geom, charge=x.icharge, spin=x.ispin,
                 output=out+'.log', verbose=4, basis=x.ibasis, symmetry=x.isym)
     #HF step
@@ -128,7 +144,7 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
     mf.run()
 
     #CASSCF step
-    fname = 'orb_'+ out #file with orbitals
+    fname = 'orb_ss_cas_'+ out #file with orbitals
     cas = mcscf.CASSCF(mf, x.norb, x.nel)
     cas.natorb = True
     cas.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
@@ -142,8 +158,8 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
         mo = mcscf.project_init_guess(cas, mo)
     e_casscf = cas.kernel(mo)[0]
     cas.analyze()
-    mo = cas.mo_coeff
-    molden.from_mo(mol, out+'.molden', cas.mo_coeff)
+    # mo = cas.mo_coeff
+    # molden.from_mo(mol, out+'.molden', cas.mo_coeff)
 
     #MC-PDFT step
     numeric  = [None]*len(ontop)
@@ -158,19 +174,24 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
         mf = scf.RHF(mol)
         mf.max_cycle = 1
         mf.run()
+
+
+        #-------------------- MC-PDFT Energy ---------------------------
         mc = mcpdft.CASSCF(mf, ifunc, x.norb, x.nel, grids_level=9)
         mc.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
         mc.fcisolver.max_cycle = 200
         mc.max_cycle_macro = 200
         mc.fcisolver.wfnsym = x.irep
         e_pdft = mc.kernel(mo)[0]
+        mo_ss = mc.mo_coeff #SS-CASSCF MOs
+        molden.from_mo(mol, out+'_ss_cas.molden', mc.mo_coeff)
 
         #Initialize dipole moments to zero
         dip_cms = np.zeros(4*x.iroot).tolist()
         abs_pdft = 0
         abs_cas  = 0
 
-        # Analytic MC-PDFT
+        # ---------------- Analytic MC-PDFT Dipole ----------------------
         for method in analyt:
             if method == 'MC-PDFT' and len(ifunc) < 10 and ifunc!='ftPBE':
                 dipoles = mc.dip_moment(unit='Debye')
@@ -184,14 +205,17 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
         #     abs_pdft = 0
         #     abs_cas  = 0
 
+        #-------------------- CMS-PDFT Energy ---------------------------
         #CMS-PDF step
         # if cms_method == true:
         weights=[1/x.iroot]*x.iroot #Equal weights only
         mc = mc.state_interaction(weights,'cms').run(mo)
         e_cms=mc.e_states.tolist() #List of CMS energies
+        mo_sa = mc.mo_coeff #SS-CASSCF MOs
+        molden.from_mo(mol, out+'_sa_cas.molden', mc.mo_coeff)
         # print('\nEnergies: ',e_cms)
 
-        # Analytic CMS-PDFT dipole
+        # ---------------- Analytic CMS-PDFT Dipole----------------------
         for method in analyt:
             if method == 'CMS-PDFT' and len(ifunc) < 10 and ifunc!='ftPBE':
 
@@ -205,11 +229,13 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
         #     dip_cms = np.array([0, 0, 0])
         #     abs_cms = 0
         
-        # Numerical dipoles
-        if numer[0] == 'CMS-PDFT' or numer[0] == 'SS-PDFT':
-            dip_num = numer_run(x, mol, mo, numer, field, formula, ifunc, out)
+        # ---------------- Numerical Dipoles ---------------------------
+        #---------------------------------------------------------------
+        if   numer[0] == 'SS-PDFT':
+            dip_num = numer_run(x, mol, mo_ss, numer, field, formula, ifunc, out)
+        elif numer[0] == 'CMS-PDFT':
+            dip_num = numer_run(x, mol, mo_sa, numer, field, formula, ifunc, out)
         elif numer[0] == None:
-        # elif bool(numer[0]) == False:
             print("Numerical dipole is ignored")
             dip_num = np.zeros((len(field), 4))
         else:
@@ -273,16 +299,19 @@ hybrid = 't'+ mcpdft.hyb('PBE', 0.25, 'average')
 #--------------------- Set Up Parameters for Dipole Moment Curves--------------------
 # Set the bond range
 bonds = np.array([1.2])
+# bonds = np.array([1.2,1.3])
 # inc=0.05
 inc=0.1
 # bonds = np.arange(1.2,3.0+inc,inc) # for energy curves
 
 # Set field range
-field = np.array(np.linspace(1e-2, 1e-3, num=2), ndmin=2).T
-field = np.array(np.linspace(1e-2, 1e-3, num=1), ndmin=2).T
-# field = np.array(np.linspace(1e-2, 1e-3, num=19), ndmin=2).T
+field = np.array(np.linspace(1e-3, 1e-2, num=2), ndmin=2).T
+field = np.array(np.linspace(1e-3, 1e-2, num=1), ndmin=2).T
+field = np.array(np.linspace(1e-3, 1e-2, num=3), ndmin=2).T
+# field = np.array([[0.001],[0.0015]])
+# field = np.array(np.linspace(1e-3, 1e-2, num=19), ndmin=2).T
 # inc= 5e-3
-# field = np.array(np.arange(1e-2, 1e-3+inc, inc), ndmin=2).T
+# field = np.array(np.arange(1e-3+inc, 1e-2, inc), ndmin=2).T
 
 # Set on-top functional
 ontop= ['tPBE']
@@ -291,8 +320,8 @@ ontop= ['tPBE']
 # ontop= [hybrid,'ftPBE']
 
 # Set differentiation technique
-formula= "2-point"
-# formula = "4-point"
+# formula= "2-point"
+formula = "4-point"
 
 # Set how dipole moments should be computed
 numer  = [None]
@@ -327,16 +356,16 @@ C         0.000000000     0.000000000     0.000000000
 O         0.000000000     0.000000000     {}
 '''
 geom_h2co= '''
-H       -0.000000000      0.950146000     -0.591726000
-H       -0.000000000     -0.950146000     -0.591726000
-C        0.000000000      0.000000000      0.000000000
-O        0.000000000      0.000000000      {}
+H       -0.000000000      0.950146000    -0.591726000
+H       -0.000000000     -0.950146000    -0.591726000
+C        0.000000000      0.000000000     0.000000000
+O        0.000000000      0.000000000     {}
 '''
 # H        0.000000000      0.942900000    -0.587600000
 # H        0.000000000     -0.942900000    -0.587600000
 # C        0.000000000      0.000000000     0.000000000
 # O        0.000000000      0.000000000     {}
-# O        0.000000000      0.000000000      1.215152000
+# O        0.000000000      0.000000000      1.215152000 #equilibrium
 # See class Molecule for the list of variables.
 # It's important to provide a molecule-specific cas_list to get initial MOs for CASSCF
 crh_7e7o = Molecule('crh_7e7o', geom_crh, 0, 'Coov', 'A1', 5, 'def2tzvpd', 1, 7,7,  1.60, [10,11,12,13,14,15, 19])
