@@ -1,5 +1,5 @@
 from tabulate import tabulate
-from pyscf import gto, scf, mcscf, lib
+from pyscf import gto, scf, mcscf, lib, lo
 from pyscf.lib import logger
 from mrh.my_pyscf import mcpdft
 from mrh.my_pyscf.fci import csf_solver
@@ -42,7 +42,7 @@ def numer_run(x, mol, mo, numer, field, formula, ifunc, out):
         mol.set_common_orig_(nuc_charge_center)
         h_field_off = mol.intor('cint1e_kin_sph') + mol.intor('cint1e_nuc_sph')
         for j in range(3): #Orient field
-            for k, v in enumerate(disp): #Select derivative term
+            for k, v in enumerate(disp): #Select point on a stencil
                 if j==0:   # X-axis
                     E = [v, 0, 0]
                 elif j==1: # Y-axis
@@ -62,11 +62,11 @@ def numer_run(x, mol, mo, numer, field, formula, ifunc, out):
                 mc.fcisolver.wfnsym = x.irep
 
                 # MC-PDFT 
-                if numer == 'SS-PDFT':
+                if numer[0] == 'SS-PDFT':
                     e_mcpdft = mc.kernel(mo)[0]
                     e[k] = e_mcpdft
                 # CMS-PDFT 
-                elif numer=='CMS-PDFT':
+                elif numer[0]=='CMS-PDFT':
                     weights=[1/x.iroot]*x.iroot #Equal weights only
                     mc=mc.state_interaction(weights,'cms').run(mo)
                     e_cms = mc.e_states.tolist() #List of CMS energies
@@ -94,6 +94,9 @@ def init_guess(y):
     mf = scf.RHF(mol)
     mf.run()
     molden.from_mo(mol,'orb_'+y.iname+'_init_hf.molden', mf.mo_coeff)
+    # nocc = mol.nelectron // 2
+    # loc = lo.PM(mol, mf.mo_coeff[:,:nocc]).kernel()
+    # molden.from_mo(mol,'orb_'+y.iname+'_init_hf_loc.molden', loc)
 
     # fname = 'orb_'+y.iname+'_init_casscf' #file with SAVED orbitals
     fname = 'orb_'+ out
@@ -111,8 +114,7 @@ def init_guess(y):
     e_casscf = cas.mc2step(mo)[0]
     cas.analyze()
     mo = cas.mo_coeff
-    # molden.from_mo(mol, 'orb_'+y.iname+'_init_casscf', cas.mo_coeff)
-    molden.from_mo(mol, out+'.molden', cas.mo_coeff)
+    molden.from_mo(mol, out+'_init_cas.molden', cas.mo_coeff)
     return mo
 
 #-------------Compute energies and dipoles for the given geometry-----------
@@ -189,7 +191,7 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
         e_cms=mc.e_states.tolist() #List of CMS energies
         # print('\nEnergies: ',e_cms)
 
-        # Analytic CMS-PDFT
+        # Analytic CMS-PDFT dipole
         for method in analyt:
             if method == 'CMS-PDFT' and len(ifunc) < 10 and ifunc!='ftPBE':
 
@@ -203,18 +205,16 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
         #     dip_cms = np.array([0, 0, 0])
         #     abs_cms = 0
         
-        # Numerical
-        if numer == 'CMS-PDFT' or numer == 'SS-PDFT':
+        # Numerical dipoles
+        if numer[0] == 'CMS-PDFT' or numer[0] == 'SS-PDFT':
             dip_num = numer_run(x, mol, mo, numer, field, formula, ifunc, out)
-        elif bool(numer) == False:
+        elif numer[0] == None:
+        # elif bool(numer[0]) == False:
             print("Numerical dipole is ignored")
             dip_num = np.zeros((len(field), 4))
         else:
             raise NotImplementedError
 
-        # tmp = np.stack((field[:, 0], dip_num[:, 0], dip_num[:, 1], dip_num[:, 2], dip_num[:, 3]), axis=1)
-        # numeric[k]  = tmp.tolist()
-        # analytic[k] = np.concatenate(([dist], dip_cas, [abs_cas], dip_pdft, [abs_pdft]))
         analytic[k] = [dist, abs_cas, abs_pdft] + dip_cms
         numeric [k] = dip_num
         en_dist [k] = [dist, e_casscf, e_pdft] + e_cms
@@ -222,26 +222,22 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
 
 def pdtabulate(df, line1, line2): return tabulate(df, headers=line1, tablefmt='psql', floatfmt=line2)
 
+# Get dipoles & energies for a fixed distance
 def run(x, field, formula, numer, analyt, mo, dist, ontop, scan, dip_scan, en_scan):
-    # Get numeric and analytic dipoel moments over all ontop functionals
     numeric, analytic, en_dist, mo = get_dipole(x, field, formula, numer, analyt, dist, mo, ontop)
 
-    # Accumulate analytic dipole moments
+    # Accumulate analytic dipole moments and energies
     for k, ifunc in enumerate(ontop):
         out = 'dmc_'+x.iname+'_'+ifunc+'.txt'
-        # list_analytic = [analytic[k]]
-        # if bool(full[k])==False:# first element is zero
-        #     full[k] = list_analytic
-        # else:
-        #     full[k] = full[k] + list_analytic
         dip_scan[k].append(analytic[k]) 
         en_scan[k].append(en_dist[k]) 
 
-        # Save numeric dipole moments
-        if numer == 'CMS-PDFT' or numer == 'SS-PDFT':
+        # Print & save numeric dipole moments
+        if numer[0] == 'CMS-PDFT' or numer[0] == 'SS-PDFT':
             ot='htPBE0' if len(ifunc)>10 else ifunc
+            #! Needs to be changed if multiple numrs are used
             print("Numeric dipole at the bond length %s found with %s (%s)" \
-                %(cs(str(dist)),cs(numer),cs(ot)))
+                %(cs(str(dist)),cs(numer[0]),cs(ot)))
             header=['Field',]
             for i in range(x.iroot): 
                 header=header+['X', 'Y', 'Z',] 
@@ -278,9 +274,8 @@ hybrid = 't'+ mcpdft.hyb('PBE', 0.25, 'average')
 # Set the bond range
 bonds = np.array([1.2])
 # inc=0.05
-# bonds = np.arange(2.6,4.0+inc,inc) # for energy curves
-# inc=0.1
-# bonds = np.arange(1.2,4.0+inc,inc) # for energy curves
+inc=0.1
+# bonds = np.arange(1.2,3.0+inc,inc) # for energy curves
 
 # Set field range
 field = np.array(np.linspace(1e-2, 1e-3, num=2), ndmin=2).T
@@ -300,13 +295,21 @@ formula= "2-point"
 # formula = "4-point"
 
 # Set how dipole moments should be computed
-numer  = None
-analyt = None
-# numer = 'SS-PDFT'
-numer = 'CMS-PDFT'
-analyt = ['MC-PDFT','CMS-PDFT']
+numer  = [None]
+analyt = [None]
+# numer = ['SS-PDFT']
+numer = ['CMS-PDFT']
+# analyt = ['MC-PDFT','CMS-PDFT']
 
-
+# from pyscf import gto, symm
+# import basis_set_exchange
+# julccpvdz = {
+#         'H' : gto.load(basis_set_exchange.api.get_basis('jul-cc-pV(D+d)Z', elements='H', fmt='nwchem'), 'H'),
+#         'C' : gto.load(basis_set_exchange.api.get_basis('jul-cc-pV(D+d)Z', elements='C', fmt='nwchem'), 'C'),
+#         'N' : gto.load(basis_set_exchange.api.get_basis('jul-cc-pV(D+d)Z', elements='N', fmt='nwchem'), 'O'),
+#         'O' : gto.load(basis_set_exchange.api.get_basis('jul-cc-pV(D+d)Z', elements='O', fmt='nwchem'), 'N'),
+#         'F' : gto.load(basis_set_exchange.api.get_basis('jul-cc-pV(D+d)Z', elements='F', fmt='nwchem'), 'F'),
+#         }
 # List of molecules and molecular parameters
 geom_ch5 = '''
 C         0.000000000     0.000000000     0.000000000
@@ -323,20 +326,34 @@ geom_co= '''
 C         0.000000000     0.000000000     0.000000000
 O         0.000000000     0.000000000     {}
 '''
+geom_h2co= '''
+H       -0.000000000      0.950146000     -0.591726000
+H       -0.000000000     -0.950146000     -0.591726000
+C        0.000000000      0.000000000      0.000000000
+O        0.000000000      0.000000000      {}
+'''
+# H        0.000000000      0.942900000    -0.587600000
+# H        0.000000000     -0.942900000    -0.587600000
+# C        0.000000000      0.000000000     0.000000000
+# O        0.000000000      0.000000000     {}
+# O        0.000000000      0.000000000      1.215152000
 # See class Molecule for the list of variables.
 # It's important to provide a molecule-specific cas_list to get initial MOs for CASSCF
 crh_7e7o = Molecule('crh_7e7o', geom_crh, 0, 'Coov', 'A1', 5, 'def2tzvpd', 1, 7,7,  1.60, [10,11,12,13,14,15, 19])
 ch5_2e2o = Molecule('ch5_2e2o', geom_ch5, 0, 'C1',   'A',  0, 'augccpvdz', 1, 2,2,  1.50, [29, 35])
 co_10e8o = Molecule('co_10e8o', geom_co,  0, 'C1',   'A',  0, 'augccpvdz', 3, 10,8, 1.20, [3,4,5,6,7, 8,9,10])
+h2co_8e8o= Molecule('h2co_8e8o',geom_h2co,0, 'C1',   'A',  0, 'julccpvdz', 2, 8,8,  1.20, [3,6,7,8,9,10,12,15])
+# h2co_8e8o= Molecule('h2co_8e8o',geom_h2co,0, 'C1',   'A',  0, 'julccpvdz', 3, 8,8,  1.20, [3,6,7,8,9,10,12,15])
+# h2co_8e7o= Molecule('h2co_8e7o',geom_h2co,0, 'C1',   'A',  0, julccpvdz, 2, 8,7,  1.20, [4,5,6,7,8,9,10])
 
 #Select species for which the dipole moment curves will be constructed
 # species=[crh_7e7o]
 # species=[ch5_2e2o]
-species=[co_10e8o]
+# species=[co_10e8o]
+species=[h2co_8e8o]
 # species=[crh_7e7o, ch5_2e2o]
 
-# ----------------------Here is the main driver of this script-------------------
-# full= [0] * len(ontop)
+# ---------------------- MAIN DRIVER OVER DISTANCES -------------------
 dip_scan = [ [] for _ in range(len(ontop)) ]
 en_scan  = [ [] for _ in range(len(ontop)) ] # Empty lists per functional
 
@@ -358,7 +375,7 @@ for x in species:
         for i in range(x.iroot): 
             dip_head=dip_head+['X', 'Y', 'Z',] 
             dip_head.append('ABS ({})'.format(cs(str(i+1))))
-        dip_sig = (".5f",)+(".6f",)*(2+4*x.iroot)
+        dip_sig = (".2f",)+(".6f",)*(2+4*x.iroot)
         
         en_head=['Distance', 'CASSCF', 'MC-PDFT']
         for i in range(x.iroot): 
@@ -367,19 +384,20 @@ for x in species:
         en_sig = (".2f",)+(".8f",)*(2+x.iroot)
 
         for k, ifunc in enumerate(ontop):
-            print("Analytic dipole moments found with %s" %cs(ifunc))
             out = x.iname+'_'+ifunc+'.txt'
+            if analyt[0]!=None:
+                print("Analytic dipole moments found with %s" %cs(ifunc))
+                # print(full[k])
+                # print(cms_full[k])
+                dip_table = pdtabulate(dip_scan[k], dip_head, dip_sig)
+                print(dip_table)
 
-            # print(full[k])
-            # print(cms_full[k])
-
-            dip_table = pdtabulate(dip_scan[k], dip_head, dip_sig)
             print("Energies found with %s" %cs(ifunc))
-            ene_table = pdtabulate(en_scan[k], en_head, en_sig)
-            print(dip_table)
-            print(ene_table)
+            en_table = pdtabulate(en_scan[k], en_head, en_sig)
+            print(en_table)
             action='w' if numer==False else 'a'
             with open(out, action) as f:
                 f.write("The on-top functional is %s \n" %cs(ifunc))
-                f.write(dip_table)
-                f.write(ene_table)
+                f.write(en_table)
+                if analyt[0]!=None:
+                    f.write(dip_table)
