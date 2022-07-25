@@ -19,7 +19,7 @@ def cs(text): return fg('light_green')+text+attr('reset')
 
 
 # ------------------ NUMERICAL DIPOLE MOMENTS ----------------------------
-def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out, dip_cms, si_zero, ham_zero, ntdm):
+def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out, dip_cms, si_zero, si_sa_zero, ham_zero, ntdm):
     global thresh
     # Set reference point to be center of charge
     mol.output='num_'+ out
@@ -32,8 +32,6 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
     h_field_off = mol.intor('cint1e_kin_sph') + mol.intor('cint1e_nuc_sph')
 
     dip_num = np.zeros((len(field), 1+4*ntdm))# 1st column is the field column
-    print('si_zero\n',si_zero)    
-    print('ham_zero\n',ham_zero) 
     for i, f in enumerate(field): # Over field strengths
         dip_num[i][0]=f # the first column is the field column 
         if formula == "2-point":
@@ -41,6 +39,7 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
         elif formula == "4-point":
             disp = [-2*f, -f, f, 2*f]
         si = np.zeros((len(disp),3,x.iroots,x.iroots)) #
+        si_sa = np.zeros((len(disp),3,x.iroots,x.iroots)) #
         si_der = np.zeros((len(field),3,x.iroots,x.iroots)) 
         ham = np.zeros((len(disp),3,x.iroots,x.iroots)) #H_PQ matrix per each disp
         der = np.zeros((len(field),3,x.iroots,x.iroots)) #Der_PQ matrix per each disp and per lambda
@@ -113,22 +112,65 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
                     e_cms   = mc.e_states.tolist() #List of CMS energies
                     ham_buf = mc.get_heff_pdft()
                     si_buf  = mc.si_pdft
-                    
+                    si_sa_buf  = mc.si_mcscf
+                    # In the presence of field the CMS vectors in the basis of intermediate states  
+                    # can flip sign and change order. The following code aims to preserve the order 
+                    # and sings as in the zero-field Hamiltonian 
+                    #Swap
                     for ii in range(x.iroots): #over zero-field intermediate states
                         for jj in range(x.iroots): #over NON-zero-field intermediate states
-                            ang=np.dot(si_zero[ii],si_buf[jj])
-                            # print(round(ang))
+                            ang=np.dot(si_sa_zero[:,ii],si_sa_buf[:,jj])
+                            print(ii,jj,round(ang))
+                            if ii<jj and (round(ang)==1 or round(ang)==-1):
+                                tmp = np.copy(ham_buf[ii,ii])
+                                ham_buf[ii,ii]=ham_buf[jj,jj]
+                                ham_buf[jj,jj]=tmp
+
+                                si_sa_buf[:,[ii,jj]]=si_sa_buf[:,[jj,ii]]
+                                si_buf[[ii,jj],:]=si_buf[[jj,ii],:]
+                    # Flip sign 
+                    for ii in range(x.iroots): #over zero-field intermediate states
+                        for jj in range(x.iroots): #over NON-zero-field intermediate states
+                            ang=np.dot(si_sa_zero[:,ii],si_sa_buf[:,jj])
                             if round(ang)==-1:
+                                si_sa_buf[:,jj]=-si_sa_buf[:,jj]
+                                si_buf[jj,:]=-si_buf[jj,:]
+                                
                                 for kk in range(x.iroots):
                                     ham_buf[kk,jj]=-ham_buf[kk,jj]
                                     ham_buf[jj,kk]=-ham_buf[jj,kk]
-                            if (round(ang)==1 or round(ang)==-1) and ii>jj:
-                                tmp = ham_buf[ii,ii]
-                                ham_buf[ii,ii]=ham_buf[jj,jj]
-                                ham_buf[jj,jj]=tmp
+
+
+                    # #Swap
+                    # for ii in range(x.iroots): #over zero-field intermediate states
+                    #     for jj in range(x.iroots): #over NON-zero-field intermediate states
+                    #         ang=np.dot(si_zero[:,ii],si_buf[:,jj])
+                    #         # print(round(ang))
+                    #         if ii<jj and (round(ang)==1 or round(ang)==-1):
+                    #             tmp = np.copy(ham_buf[ii,ii])
+                    #             ham_buf[ii,ii]=ham_buf[jj,jj]
+                    #             ham_buf[jj,jj]=tmp
+
+                    #             si_buf[:,[ii,jj]]=si_buf[:,[jj,ii]]
+                    # # Flip sign 
+                    # for ii in range(x.iroots): #over zero-field intermediate states
+                    #     for jj in range(x.iroots): #over NON-zero-field intermediate states
+                    #         ang=np.dot(si_zero[:,ii],si_buf[:,jj])
+                    #         if round(ang)==-1:
+                    #             si_buf[:,jj]=-si_buf[:,jj]
+                                
+                    #             for kk in range(x.iroots):
+                    #                 ham_buf[kk,jj]=-ham_buf[kk,jj]
+                    #                 ham_buf[jj,kk]=-ham_buf[jj,kk]
+
+
+                    #At this point, the order and signs of CMS states should now match those of zero-field Hamiltonian
+                    #Store values 
                     ham[k,j,:,:] = ham_buf
                     si[k,j,:,:] = si_buf
+                    si_sa[k,j,:,:] = si_sa_buf
                     print('si_pdft\n',si)
+                    print('si_sa\n',si_sa)
                     print('H_PQ\n',ham)
                     # e[k] = mc.e_states.tolist() #List of  energies
                 else:
@@ -153,13 +195,18 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
                 for j in range(3): #over j = {x,y,z} directions
                     for p in range(x.iroots):
                         for q in range(x.iroots):
-                            dip_num[i,1+j+shift]+=der[i,j,p,q]*si_zero[m][p]*si_zero[n][q]
+                            dip_num[i,1+j+shift]+=der[i,j,p,q]*si_zero[p][m]*si_zero[q][n]
+
+                            # dip_num[i,1+j+shift]+=der[i,j,p,q]*si_zero[p][m]*si_zero[q][n] + \
+                            #     (si_zero[p][m]*si_der[i,j,q,n]+si_zero[q][n]*si_der[i,j,p,m])*ham_zero[p][q]
+
                             # dip_num[i,1+j+shift]+=der[i,j,p,q]*si_zero[p][m]*si_zero[q][n]
                             # dip_num[i,1+j+shift]+=der[i,j,p,q]*si_zero[p][m]*si_zero[q][n] + \
                             #     (si_zero[p][m]*si_der[i,j,q,n]+si_zero[q][n]*si_der[i,j,p,m])*ham_zero[p][q]
         # Get absolute dipole moment
 
         print('der\n',der) 
+        print('si_der\n',si_der) 
            
         print('dip_num',dip_num)
         for mn in range(ntdm):
@@ -439,8 +486,12 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
                     # si_zero=mc.si_mat
                     # ham_zero=mc.ham
                     si_zero=mc.si_pdft
+                    si_sa_zero=mc.si_mcscf
                     ham_zero=mc.get_heff_pdft()
-                dip_num = numer_run(dist, x, mol, mo, ci, method, field, formula, ifunc, out, dip_cms, si_zero, ham_zero, ntdm)
+                    print('si_zero\n',si_zero)    
+                    print('si_sa_zero\n',si_sa_zero)    
+                    print('ham_zero\n',ham_zero) 
+                dip_num = numer_run(dist, x, mol, mo, ci, method, field, formula, ifunc, out, dip_cms, si_zero, si_sa_zero, ham_zero, ntdm)
             
         analytic[k] = [dist, abs_cas, abs_pdft] + dip_cms
         numeric [k] = dip_num
@@ -612,6 +663,21 @@ H       -0.000000000     -0.950627350     -0.591483790
 C        0.000000000      0.000000000      0.000000000
 O        0.000000000      0.000000000     {}
 '''
+geom_fluorobenzene= '''
+C        0.183499999      1.226261448      0.000000000
+C       -1.221421109      1.211246096      0.000000000
+C        0.855142196      0.000760301      0.000000000
+C       -1.923298868     -0.005687081      0.000000000
+C        0.189109961     -1.227818476      0.000000000
+H       -3.021636707     -0.008151529      0.000000000
+H        0.764791554     -2.162287676      0.000000000
+C       -1.215815905     -1.219374361      0.000000000
+H       -1.759511085     -2.174539458      0.000000000
+H        0.754810367      2.163408242      0.000000000
+F        2.224458801      0.003499952      0.000000000
+H       -1.769650313      2.163822617      0.000000000
+'''
+
 # GS geom_h2co equilibrium CMS-PDFT (tPBE) (6e,6o) / julccpvdz
 # O        0.000000000      0.000000000      1.214815430 
 
@@ -643,8 +709,10 @@ phenol_8e7o_opt  = Molecule('phenol_opt',  geom_phenol_opt,   8,7, [18,23,24,25,
 OH_phenol_10e9o  = Molecule('OH_phenol_10e9o', geom_OH_phenol,10,9,[19,20,23,24,25,26,31,33,34], init=1.3, iroots=2)
 OH_phenol3_10e9o =  copy.deepcopy(OH_phenol_10e9o)
 OH_phenol3_10e9o.iroots=3
+phenol_8e7o_sto_3      =  copy.deepcopy(phenol_8e7o_sto)
+phenol_8e7o_sto_3.iroots=3
 spiro_11e10o  = Molecule('spiro_11e10o','frames',11,10,[35,43,50,51,52,53, 55,76,87,100], iroots=2, icharge=1, ispin=1)
-
+fluorobenzene_6e6o  = Molecule('fluorobenzene_6e6o',geom_fluorobenzene, 6,6, [23,24,25,31,32,34],iroots=3)
 #Select species for which the dipole moment curves will be constructed
 # species=[crh_7e7o]
 # species=[ch5_2e2o]
@@ -657,7 +725,8 @@ species=[OH_phenol3_10e9o]
 species=[OH_phenol_10e9o]
 species=[phenol_8e7o]
 species=[phenol_8e7o_opt]
-
+species=[fluorobenzene_6e6o]
+species=[phenol_8e7o_sto_3]
 
 # ---------------------- MAIN DRIVER OVER DISTANCES -------------------
 dip_scan = [ [] for _ in range(len(ontop)) ]
