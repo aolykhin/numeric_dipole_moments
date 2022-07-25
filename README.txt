@@ -1,5 +1,6 @@
 These tests can be used to compute analytic and numeric permanent (PDM) and transition (TDM) dipole moments.
-The numeric values are scanned across set of electric field, geometries, and on-top functionals. The resulting table contains information to get the converged numerical results.
+The numeric values are scanned across set of electric fields, geometries, and on-top functionals. 
+The resulting table contains data required to get converged numerical results.
 
 
 Methods: 
@@ -11,3 +12,5 @@ Numeric PDM:
 	- SS-PDFT, SA-PDFT, CMS-PDFT
 Numeric TDM:
 	- CMS-PDFT
+
+Ultimately these tests will be converged into a single one
