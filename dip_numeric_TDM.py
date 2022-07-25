@@ -13,37 +13,74 @@ from pyscf.tools import molden
 import copy
 from colored import fg, attr
 from pyscf.data import nist
+from pyscf.fci.addons import overlap as braket
 
 def cs(text): return fg('light_green')+text+attr('reset')
 
-def adjust_columns(x, si_sa_buf, si_sa_zero):
-    # Rotate COLUMNS of a field-dependent matrix
-    import itertools
-    from numpy import unravel_index
-    order=list(itertools.permutations(range(x.iroots)))
-    n=len(order)
+def adjust_sa_order(x, ci_buf, ci_zero, si_sa_buf):
     regular=list(range(x.iroots))
-    overlap=np.zeros(n)
-    
-    print('BEFORE rotation of columns\n',si_sa_buf)
-    for j in range(n):# over all permutations
-        
-        wrk=si_sa_buf.copy()
-        wrk[:,order[j]]=si_sa_buf[:,regular]
-        for i in range(x.iroots):
-            overlap[j]+=abs(np.dot(si_sa_zero[i,:],wrk[i,:]))
-    print('overlap during column adjustment\n',overlap)
-    ind = np.argmax(overlap)
-    new_order=list(order[ind])
-    si_sa_buf[:,new_order]=si_sa_buf[:,regular]
+    over=np.zeros((x.iroots,x.iroots),dtype=int)
+    ci_order=[]
+    ci_signs=[]
+    for i in range(x.iroots):
+        for j in range(x.iroots):
+            val=braket(ci_zero[i],ci_buf[j],norb=x.norb,nelec=x.nel)   
+            # print('VAL before rounding\n',i,j,val)
+            over[i,j]=int(round(val))
+            if over[i,j] !=  0: ci_order.append(j)
+            if over[i,j] == -1: ci_signs.append(-1)
+            if over[i,j] ==  1: ci_signs.append(1)
+    if (len(ci_order) > x.iroots) or (len(ci_signs) > x.iroots):
+        raise ValueError('CI vectors are not orthogonal enough')
+    #Adjust order & signs in ci_buf to that of ci_zero
+    print('ci_order',ci_order,type(ci_order))
+    # ci_buf[regular,:]=ci_buf[ci_order,:]
+    # for i, coeff in enumerate(ci_signs): ci_buf[i,:]=coeff*ci_buf[i,:]
+    print('ci_order\n',ci_order)
+    print('ci_signs\n',ci_signs)
+    ci_buf=np.asanyarray(ci_buf)
+    ci_buf[regular]=ci_buf[ci_order]
+    for i, coeff in enumerate(ci_signs): ci_buf[i]=coeff*ci_buf[i]
+    ci_buf=list(ci_buf)
+    for i in range(x.iroots):
+        for j in range(x.iroots):
+            val=braket(ci_zero[i],ci_buf[j],norb=x.norb,nelec=x.nel)   
+            over[i,j]=int(round(val))
+    print('Overlap of CI vectors after adjustment\n',over)
+    #Adjust order & signs of SA states in si_sa_buf 
+    print('BEFORE CI ADJUSTMENT\n',si_sa_buf)
+    si_sa_buf[:,regular]=si_sa_buf[:,ci_order]
+    for i, coeff in enumerate(ci_signs): si_sa_buf[:,i]=coeff*si_sa_buf[:,i]
+    print('AFTER CI ADJUSTMENT\n',si_sa_buf)
 
-    print('AFTER rotation of columns\n',si_sa_buf)
-    print("New order of columns=\n",order[ind])
     return si_sa_buf
 
-def adjust_inter_states(x, si_sa_zero, ham_zero, si_sa_buf, ham_buf):
+# def adjust_columns(x, si_sa_buf, si_sa_zero):
+#     # Rotate COLUMNS of a field-dependent matrix
+#     import itertools
+#     from numpy import unravel_index
+#     order=list(itertools.permutations(range(x.iroots)))
+#     n=len(order)
+#     regular=list(range(x.iroots))
+#     overlap=np.zeros(n)
+    
+#     print('BEFORE rotation of columns\n',si_sa_buf)
+#     for j in range(n):# over all permutations
+        
+#         wrk=si_sa_buf.copy()
+#         wrk[:,order[j]]=si_sa_buf[:,regular]
+#         for i in range(x.iroots):
+#             overlap[j]+=abs(np.dot(si_sa_zero[i,:],wrk[i,:]))
+#     print('overlap during column adjustment\n',overlap)
+#     ind = np.argmax(overlap)
+#     new_order=list(order[ind])
+#     si_sa_buf[:,new_order]=si_sa_buf[:,regular]
 
+#     print('AFTER rotation of columns\n',si_sa_buf)
+#     print("New order of columns=\n",order[ind])
+#     return si_sa_buf
 
+def adjust_pq_order(x, si_sa_zero, ham_zero, si_sa_buf, ham_buf):
     import itertools
     from numpy import unravel_index
     order=list(itertools.permutations(range(x.iroots)))
@@ -53,9 +90,8 @@ def adjust_inter_states(x, si_sa_zero, ham_zero, si_sa_buf, ham_buf):
     regular=list(range(x.iroots))
     print(order)
 
-    # We want to generate all possible variations of signs
-    # and positions for a set of intermediate states
-    # represented by rows 
+    # We want to generate all possible variations of signs & positions 
+    # for a set of intermediate states represented by rows 
 
     # Form sign_list  
     sign_list=[]
@@ -76,19 +112,18 @@ def adjust_inter_states(x, si_sa_zero, ham_zero, si_sa_buf, ham_buf):
     dim_sign=len(sign_list)
     overlap=np.zeros((n,dim_sign))
     overlap_si=np.zeros((n,dim_sign))
+
+    
     # for m in range(1):
     old_diff_si=100 
     for m, vec in enumerate(sign_list): 
         for k in range(n):# over all permutations
             new_order=order[k]
-            # vec=[1,1,1]
             for i in regular:
                 for j in regular:
                     sign[i,j]=vec[i]*vec[j]
                     wrk[new_order[i],new_order[j]] = sign[i,j]*ham_buf[i,j]
 
-            # print('wrk\n',wrk)
-            # print('vec\n',vec)
             diff=abs(wrk-ham_zero)
             overlap[k,m]=diff.sum()
 
@@ -97,63 +132,58 @@ def adjust_inter_states(x, si_sa_zero, ham_zero, si_sa_buf, ham_buf):
                 print('new_order ',new_order)
                 print('new_sign ',vec)
                 print('Overlap=',overlap[k,m])
+                print('Adj Ham\n=',wrk)
 
                 wrk_si=si_sa_buf.copy()
                 print('Working on si_sa_buf\n',si_sa_buf)
+                # wrk_si[regular,:]=wrk_si[new_order,:]
+                # for ii in range(x.iroots):
+                #     wrk_si[ii,:]=vec[ii]*wrk_si[ii,:]
+
+                # for ii in range(x.iroots):
+                #     wrk_si[ii,:]=vec[ii]*wrk_si[ii,:]
+                # wrk_si[new_order,:]=wrk_si[regular,:]
+
+                wrk_si[new_order,:]=wrk_si[regular,:]
                 for ii in range(x.iroots):
                     wrk_si[ii,:]=vec[ii]*wrk_si[ii,:]
-                wrk_si[new_order,:]=wrk_si[regular,:]
-                wrk_si=adjust_columns(x, wrk_si, si_sa_zero)
+
+
+                print('Adj si_sa_buf\n',wrk_si)
+
+                # wrk_si=adjust_columns(x, wrk_si, si_sa_zero)
                 diff_si=abs(wrk_si-si_sa_zero)
                 new_diff_si=diff_si.sum()
                 print('si diff=',new_diff_si)
                 if new_diff_si<old_diff_si:
                     old_diff_si=new_diff_si
-                    new_order=list(order[k])
-                    new_signs=list(vec)
+                    fin_order=list(order[k])
+                    fin_signs=list(vec)
 
-                # overlap_si[k,m]=diff.sum()
-
-            # for i in range(x.iroots):
-                # overlap_si[k,m] += np.dot(si_sa_zero[i,:],wrk[i,:])
-    print('final new_order=',new_order)        
-    print('final new_signs=',new_signs)        
-    # grand_overlap = overlap + overlap_si
-    # ind_ham, ind_sign = np.unravel_index(np.argmin(grand_overlap, axis=None), grand_overlap.shape)
-    # new_order=list(order[ind_ham])
-    # new_signs=list(sign_list[ind_sign])
     # ind_ham, ind_sign = np.unravel_index(np.argmin(overlap, axis=None), overlap.shape)
-    # new_order=list(order[ind_ham])
-    # new_signs=list(sign_list[ind_sign])
+    # fin_order=list(order[ind_ham])
+    # fin_signs=list(sign_list[ind_sign])
 
-    # print('ind_ham,ind_sign',ind_ham,ind_sign)
-    print(overlap_si)
-    print(overlap)
-    print(" New ORDER of rows =\n",new_order)
-    print(" New SIGNS of rows =\n",new_signs)
-    print('before rotation of rows\n',si_sa_buf)
-
-    for i in range(x.iroots):
-        si_sa_buf[i,:]=new_signs[i]*si_sa_buf[i,:]
-    si_sa_buf[new_order,:]=si_sa_buf[regular,:]
-    print('after rotation of rows\n',si_sa_buf)
-    si_sa_buf=adjust_columns(x, si_sa_buf, si_sa_zero)
-    print('after rotation of Columns\n',si_sa_buf)
-
-    # Adjust Hamiltonian in intermediate basis
-    print('before ham_buf\n',ham_buf)
-    wrk=ham_buf.copy()
-    # vec=list(sign_list[ind_sign])
+    print('final new_order=',fin_order)        
+    print('final new_signs=',fin_signs)       
+    
+    si_sa_buf[regular,:]=si_sa_buf[fin_order,:]
+    for ii in range(x.iroots):
+        si_sa_buf[ii,:]=fin_signs[ii]*si_sa_buf[ii,:] 
+    print('FINAL si_sa_buf\n',si_sa_buf)
+    tmp=ham_buf.copy()
     for i in regular:
         for j in regular:
-            sign[i,j]=new_signs[i]*new_signs[j]
-            ham_buf[new_order[i],new_order[j]] = sign[i,j]*wrk[i,j]
-    print('after ham_buf\n',ham_buf)
+            sign[i,j]=fin_signs[i]*fin_signs[j]
+            ham_buf[fin_order[i],fin_order[j]] = sign[i,j]*tmp[i,j]
+
+    print(overlap)
 
     return si_sa_buf, ham_buf
 
 # ------------------ NUMERICAL DIPOLE MOMENTS ----------------------------
-def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out, dip_cms, si_zero, si_sa_zero, ham_zero, ntdm):
+def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out, dip_cms, \
+    si_zero, si_sa_zero, ham_zero, ntdm):
     global thresh
     # Set reference point to be center of charge
     mol.output='num_'+ out
@@ -175,8 +205,9 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
         si = np.zeros((len(disp),3,x.iroots,x.iroots)) #
         si_sa = np.zeros((len(disp),3,x.iroots,x.iroots)) #
         si_der = np.zeros((len(field),3,x.iroots,x.iroots)) 
-        ham = np.zeros((len(disp),3,x.iroots,x.iroots)) #H_PQ matrix per each disp
-        der = np.zeros((len(field),3,x.iroots,x.iroots)) #Der_PQ matrix per each disp and per lambda
+        ham = np.zeros((len(disp),3,x.iroots,x.iroots)) #H_PQ matrix per  disp
+        der = np.zeros((len(field),3,x.iroots,x.iroots)) #Der_PQ matrix per disp and per lambda
+        ci_buf  = [None]*x.iroots
         # e = [ [] for _ in range(2) ]
         if i==0: #set zero-field MOs as initial guess 
             mo_field = []
@@ -224,35 +255,27 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
                 # MC-PDFT 
                 if method == 'SS-PDFT':
                     raise NotImplementedError
-                    # e_mcpdft = mc.kernel(mo)[0]
-                    # if mc.converged==False: 
-                    #     mc.max_cycle_macro = 200
-                    #     e_mcpdft = mc.kernel(mo_zero)[0]
-                    # e[k] = e_mcpdft
                 # SA-PDFT 
                 elif method == 'SA-PDFT':
                     raise NotImplementedError
-                    # mc=mc.state_average_(weights).run(mo)
-                    # if mc.converged==False:
-                    #     mc.max_cycle_macro = 200
-                    #     mc.run(mo_zero)
-                    # e[k] = mc.e_states #List of energies
                 # CMS-PDFT 
                 elif method == 'CMS-PDFT':
                     mc=mc.multi_state(weights,'cms').run(mo,ci)
                     if mc.converged==False:
                         mc.max_cycle_macro = 200
                         mc.run(mo_zero, ci_zero)
+                    ci_buf = mc.ci
+                    print('NEXT HAMILTONIAN')
                     e_cms   = mc.e_states.tolist() #List of CMS energies
                     ham_buf = mc.get_heff_pdft()
                     si_buf  = mc.si_pdft
                     si_sa_buf  = mc.si_mcscf
-                    print('NEXT HAMILTONIAN')
+
                     # In the presence of field the CMS vectors in the basis of intermediate states  
                     # can flip sign and change order. The following code aims to preserve the order 
                     # and sings as in the zero-field Hamiltonian 
-                    si_sa_buf, ham_buf = adjust_inter_states(x, si_sa_zero, ham_zero, si_sa_buf, ham_buf)
-                    # print('si_sa_BUF AFTER\n',si_sa_buf)
+                    si_sa_buf=adjust_sa_order(x, ci_buf, ci_zero, si_sa_buf)
+                    si_sa_buf, ham_buf = adjust_pq_order(x, si_sa_zero, ham_zero, si_sa_buf, ham_buf)
                     #At this point, the order and signs of CMS states should now match those of zero-field Hamiltonian
                     #Store values 
                     ham[k,j,:,:] = ham_buf
@@ -466,6 +489,7 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
             # mc = mc.state_interaction(weights,'cms').run(mo,ci)
             mc = mc.multi_state(weights,'cms').run(mo,ci)
             e_states=mc.e_states.tolist() 
+            ci_zero = mc.ci
             # mo_sa = mc.mo_coeff #SA-CASSCF MOs
             # molden.from_mo(mol, out+'_sa.molden', mc.mo_coeff)
             if dmcFLAG == True:
@@ -509,7 +533,7 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
             if dmcFLAG == True:
                 print("Working on Analytic SA-CASSCF TDM")
                 from functools import reduce
-                ci_vec  = [None]*x.iroots
+                ci_buf  = [None]*x.iroots
                 orbcas = mo[:,cas.ncore:cas.ncore+cas.ncas]
                 with mol.with_common_orig((0,0,0)):
                     dip_ints = mol.intor('cint1e_r_sph', comp=3)
@@ -517,7 +541,8 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
                     mc = mcscf.CASCI(mf, x.norb, x.nel).state_specific_(i)
                     mc.fix_spin_(ss=x.ispin)
                     mc.casci(mo)[0]
-                    ci_vec[i] = mc.ci
+                    ci_buf[i] = mc.ci
+
                 #charges = mol.atom_charges()
                 #coords = mol.atom_coords()
                 #nuc_charge_center = np.einsum('z,zx->x', charges, coords) / charges.sum()
@@ -530,7 +555,7 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
                         id_tdm+=1
                         shift=id_tdm*4
                         # tdm=mc.trans_moment(state=[m,n],unit='Debye')
-                        t_dm1 = mc.fcisolver.trans_rdm1(ci_vec[m], ci_vec[n], cas.ncas, cas.nelecas)
+                        t_dm1 = mc.fcisolver.trans_rdm1(ci_buf[m], ci_buf[n], cas.ncas, cas.nelecas)
                         t_dm1_ao = reduce(np.dot, (orbcas, t_dm1, orbcas.T))
                         tdm = nist.AU2DEBYE*np.einsum('xij,ji->x', dip_ints, t_dm1_ao)
                         # print(tdm)
@@ -561,10 +586,12 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
                     si_zero=mc.si_pdft
                     si_sa_zero=mc.si_mcscf
                     ham_zero=mc.get_heff_pdft()
+                    ci=ci_zero
                     # print('si_zero\n',si_zero)    
                     print('si_sa_zero\n',si_sa_zero)    
                     print('ham_zero\n',ham_zero) 
-                dip_num = numer_run(dist, x, mol, mo, ci, method, field, formula, ifunc, out, dip_cms, si_zero, si_sa_zero, ham_zero, ntdm)
+                dip_num = numer_run(dist, x, mol, mo, ci, method, field, formula, ifunc, out, dip_cms, \
+                    si_zero, si_sa_zero, ham_zero, ntdm)
             
         analytic[k] = [dist, abs_cas, abs_pdft] + dip_cms
         numeric [k] = dip_num
@@ -575,7 +602,8 @@ def pdtabulate(df, line1, line2): return tabulate(df, headers=line1, tablefmt='p
 
 # Get dipoles & energies for a fixed distance
 def run(x, field, formula, numer, analyt, mo, ci, dist, ontop, scan, dip_scan, en_scan, ntdm, dmcFLAG=True):
-    numeric, analytic, en_dist, mo, ci = get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcFLAG=dmcFLAG)
+    numeric, analytic, en_dist, mo, ci = \
+        get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcFLAG=dmcFLAG)
 
     # Accumulate analytic dipole moments and energies
     for k, ifunc in enumerate(ontop):
