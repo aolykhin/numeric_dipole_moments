@@ -8,10 +8,14 @@ import numpy as np
 import os
 from pyscf.tools import molden
 import copy
+from colored import fg, attr
+
 
 os.environ['OMP_NUM_THREADS'] = "1"
 os.environ['MKL_NUM_THREADS'] = "1"
 os.environ['OPENBLAS_NUM_THREADS'] = "1"
+
+def cs(text): return fg('light_green')+text+attr('reset')
 
         # ------------------ NUMERICAL DIPOLE MOMENTS ----------------------------
 def numer_run(x, mol, mo, numer, field, formula, ifunc, out):
@@ -159,6 +163,25 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
         mc.fcisolver.wfnsym = x.irep
         e_pdft = mc.kernel(mo)[0]
 
+        #Initialize dipole moments to zero
+        dip_cms = np.zeros(4*x.iroot).tolist()
+        abs_pdft = 0
+        abs_cas  = 0
+
+        # Analytic MC-PDFT
+        for method in analyt:
+            if method == 'MC-PDFT' and len(ifunc) < 10 and ifunc!='ftPBE':
+                dipoles = mc.dip_moment(unit='Debye')
+                dip_pdft, dip_cas = dipoles[0], dipoles[1]
+                abs_pdft = np.linalg.norm(dip_pdft)
+                abs_cas  = np.linalg.norm(dip_cas)
+        # else:
+        #     print("Analytical dipole is ignored")
+        #     dip_pdft = np.array([0, 0, 0])
+        #     dip_cas  = np.array([0, 0, 0])
+        #     abs_pdft = 0
+        #     abs_cas  = 0
+
         #CMS-PDF step
         # if cms_method == true:
         weights=[1/x.iroot]*x.iroot #Equal weights only
@@ -166,6 +189,20 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
         e_cms=mc.e_states.tolist() #List of CMS energies
         # print('\nEnergies: ',e_cms)
 
+        # Analytic CMS-PDFT
+        for method in analyt:
+            if method == 'CMS-PDFT' and len(ifunc) < 10 and ifunc!='ftPBE':
+
+                # dipoles = mc.dip_moment(unit='Debye')
+                # dip_cms = dipoles[0]
+                # abs_cms = np.linalg.norm(dip_cms)
+                # dip_cms = np.array([0, 0, 0])
+                abs_cms = 0
+        # else:
+        #     ("Analytical dipole is ignored")
+        #     dip_cms = np.array([0, 0, 0])
+        #     abs_cms = 0
+        
         # Numerical
         if numer == 'CMS-PDFT' or numer == 'SS-PDFT':
             dip_num = numer_run(x, mol, mo, numer, field, formula, ifunc, out)
@@ -174,51 +211,41 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
             dip_num = np.zeros((len(field), 4))
         else:
             raise NotImplementedError
-        
-        # Analytical
-        if analyt == True and len(ifunc) < 10 and ifunc!='ftPBE':
-            dipoles = mc.dip_moment(unit='Debye')
-            dip_pdft, dip_cas = dipoles[0], dipoles[1]
-            abs_pdft = np.linalg.norm(dip_pdft)
-            abs_cas  = np.linalg.norm(dip_cas)
-        # Skip analytic MC-PDFT for a hybrid translated functional
-        else:
-            print("Analytical dipole is ignored")
-            dip_pdft, dip_cas = np.array([0, 0, 0]), np.array([0, 0, 0])
-            abs_pdft = 0
-            abs_cas  = 0
 
         # tmp = np.stack((field[:, 0], dip_num[:, 0], dip_num[:, 1], dip_num[:, 2], dip_num[:, 3]), axis=1)
         # numeric[k]  = tmp.tolist()
-        numeric[k]  = dip_num
-        analytic[k] = np.concatenate(([dist, e_casscf, e_pdft], dip_cas, [abs_cas], dip_pdft, [abs_pdft]))
-        en_dist[k] = [dist, e_casscf, e_pdft] + e_cms
+        # analytic[k] = np.concatenate(([dist], dip_cas, [abs_cas], dip_pdft, [abs_pdft]))
+        analytic[k] = [dist, abs_cas, abs_pdft] + dip_cms
+        numeric [k] = dip_num
+        en_dist [k] = [dist, e_casscf, e_pdft] + e_cms
     return numeric, analytic, en_dist, mo
 
 def pdtabulate(df, line1, line2): return tabulate(df, headers=line1, tablefmt='psql', floatfmt=line2)
 
-def run(x, field, formula, numer, analyt, mo, dist, ontop, scan, full, en_scan):
+def run(x, field, formula, numer, analyt, mo, dist, ontop, scan, dip_scan, en_scan):
     # Get numeric and analytic dipoel moments over all ontop functionals
     numeric, analytic, en_dist, mo = get_dipole(x, field, formula, numer, analyt, dist, mo, ontop)
 
-    # Save Analytic dipole moments
+    # Accumulate analytic dipole moments
     for k, ifunc in enumerate(ontop):
         out = 'dmc_'+x.iname+'_'+ifunc+'.txt'
-        list_analytic = [analytic[k]]
-        if bool(full[k])==False:# first element is zero
-            full[k] = list_analytic
-        else:
-            full[k] = full[k] + list_analytic
+        # list_analytic = [analytic[k]]
+        # if bool(full[k])==False:# first element is zero
+        #     full[k] = list_analytic
+        # else:
+        #     full[k] = full[k] + list_analytic
+        dip_scan[k].append(analytic[k]) 
         en_scan[k].append(en_dist[k]) 
 
         # Save numeric dipole moments
         if numer == 'CMS-PDFT' or numer == 'SS-PDFT':
             ot='htPBE0' if len(ifunc)>10 else ifunc
-            print("Numeric dipole at the bond length %s found with %s (%s)" %(dist,numer,ot))
+            print("Numeric dipole at the bond length %s found with %s (%s)" \
+                %(cs(str(dist)),cs(numer),cs(ot)))
             header=['Field',]
-            for i in range(3): 
+            for i in range(x.iroot): 
                 header=header+['X', 'Y', 'Z',] 
-                header.append('ABS ({})'.format(i+1))
+                header.append('ABS ({})'.format(cs(str(i+1))))
             sigfig = (".5f",)+(".6f",)*4*x.iroot
             numer_point = pdtabulate(numeric[k], header, sigfig)
             print(numer_point)
@@ -277,7 +304,7 @@ numer  = None
 analyt = None
 # numer = 'SS-PDFT'
 numer = 'CMS-PDFT'
-# analyt = 'CMS-PDFT'
+analyt = ['MC-PDFT','CMS-PDFT']
 
 
 # List of molecules and molecular parameters
@@ -309,8 +336,9 @@ species=[co_10e8o]
 # species=[crh_7e7o, ch5_2e2o]
 
 # ----------------------Here is the main driver of this script-------------------
-full= [0] * len(ontop)
-en_scan = [ [] for _ in range(len(ontop)) ] # Empty lists per functional
+# full= [0] * len(ontop)
+dip_scan = [ [] for _ in range(len(ontop)) ]
+en_scan  = [ [] for _ in range(len(ontop)) ] # Empty lists per functional
 
 scan=False if len(bonds)==1 else True #Determine if multiple bonds are passed
 for x in species:
@@ -324,32 +352,34 @@ for x in species:
         if i==0: template=x.geom
         x.geom=template.format(dist)
 
-        run(x, field, formula, numer, analyt, mo, dist, ontop, scan, full, en_scan)
+        run(x, field, formula, numer, analyt, mo, dist, ontop, scan, dip_scan, en_scan)
         
-        line1 = ['Distance', 'Energy CASSCF', 'Energy MC-PDFT'] + \
-                ['X', 'Y', 'Z', 'Dipole CASSCF'] + ['X', 'Y', 'Z', 'Dipole MC-PDFT']
-        line2 = (".2f",)+(".8f",)*2+ (".6f",)*8
-        
-        header_CMS_PDFT=[]
+        dip_head = ['Distance','Dipole CASSCF','Dipole MC-PDFT']
         for i in range(x.iroot): 
-            str='CMS-PDFT ({})'.format(i+1)
-            header_CMS_PDFT.append(str)
-        line3 = ['Distance', 'CASSCF', 'MC-PDFT'] + header_CMS_PDFT
-        line4 = (".2f",)+(".8f",)*(2+x.iroot)
+            dip_head=dip_head+['X', 'Y', 'Z',] 
+            dip_head.append('ABS ({})'.format(cs(str(i+1))))
+        dip_sig = (".5f",)+(".6f",)*(2+4*x.iroot)
+        
+        en_head=['Distance', 'CASSCF', 'MC-PDFT']
+        for i in range(x.iroot): 
+            line='CMS-PDFT ({})'.format(cs(str(i+1)))
+            en_head.append(line)
+        en_sig = (".2f",)+(".8f",)*(2+x.iroot)
 
         for k, ifunc in enumerate(ontop):
-            print("Analytic dipole moments found with %s" %ifunc)
+            print("Analytic dipole moments found with %s" %cs(ifunc))
             out = x.iname+'_'+ifunc+'.txt'
 
             # print(full[k])
             # print(cms_full[k])
 
-            full_table = pdtabulate(full[k], line1, line2)
-            cms_table = pdtabulate(en_scan[k], line3, line4)
-            print(full_table)
-            print(cms_table)
+            dip_table = pdtabulate(dip_scan[k], dip_head, dip_sig)
+            print("Energies found with %s" %cs(ifunc))
+            ene_table = pdtabulate(en_scan[k], en_head, en_sig)
+            print(dip_table)
+            print(ene_table)
             action='w' if numer==False else 'a'
             with open(out, action) as f:
-                f.write("The on-top functional is %s \n" %ifunc)
-                f.write(full_table)
-                f.write(cms_table)
+                f.write("The on-top functional is %s \n" %cs(ifunc))
+                f.write(dip_table)
+                f.write(ene_table)

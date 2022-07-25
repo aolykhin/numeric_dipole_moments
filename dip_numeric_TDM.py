@@ -16,7 +16,141 @@ from pyscf.data import nist
 
 def cs(text): return fg('light_green')+text+attr('reset')
 
+def adjust_columns(x, si_sa_buf, si_sa_zero):
+    # Rotate COLUMNS of a field-dependent matrix
+    import itertools
+    from numpy import unravel_index
+    order=list(itertools.permutations(range(x.iroots)))
+    n=len(order)
+    regular=list(range(x.iroots))
+    overlap=np.zeros(n)
+    
+    print('BEFORE rotation of columns\n',si_sa_buf)
+    for j in range(n):# over all permutations
+        
+        wrk=si_sa_buf.copy()
+        wrk[:,order[j]]=si_sa_buf[:,regular]
+        for i in range(x.iroots):
+            overlap[j]+=abs(np.dot(si_sa_zero[i,:],wrk[i,:]))
+    print('overlap during column adjustment\n',overlap)
+    ind = np.argmax(overlap)
+    new_order=list(order[ind])
+    si_sa_buf[:,new_order]=si_sa_buf[:,regular]
 
+    print('AFTER rotation of columns\n',si_sa_buf)
+    print("New order of columns=\n",order[ind])
+    return si_sa_buf
+
+def adjust_inter_states(x, si_sa_zero, ham_zero, si_sa_buf, ham_buf):
+
+
+    import itertools
+    from numpy import unravel_index
+    order=list(itertools.permutations(range(x.iroots)))
+    n=len(order)
+    new_order=[]
+    remaining=list(range(x.iroots))
+    regular=list(range(x.iroots))
+    print(order)
+
+    # We want to generate all possible variations of signs
+    # and positions for a set of intermediate states
+    # represented by rows 
+
+    # Form sign_list  
+    sign_list=[]
+    combo=[]
+    combo_tmp=[]
+    tmp=[1]*x.iroots
+    for i in range(x.iroots): #all except all states flipped
+    # for i in range(x.iroots+1):
+        if i!=0: tmp[i-1]=-1
+        combo_tmp=itertools.permutations(tmp,x.iroots)
+        for i in combo_tmp:
+            if i not in sign_list:
+                sign_list.append(i)
+
+    # Rotate ROWS of a field-dependent matrix
+    sign=np.zeros((x.iroots,x.iroots))
+    wrk=np.zeros((x.iroots,x.iroots))
+    dim_sign=len(sign_list)
+    overlap=np.zeros((n,dim_sign))
+    overlap_si=np.zeros((n,dim_sign))
+    # for m in range(1):
+    old_diff_si=100 
+    for m, vec in enumerate(sign_list): 
+        for k in range(n):# over all permutations
+            new_order=order[k]
+            # vec=[1,1,1]
+            for i in regular:
+                for j in regular:
+                    sign[i,j]=vec[i]*vec[j]
+                    wrk[new_order[i],new_order[j]] = sign[i,j]*ham_buf[i,j]
+
+            # print('wrk\n',wrk)
+            # print('vec\n',vec)
+            diff=abs(wrk-ham_zero)
+            overlap[k,m]=diff.sum()
+
+            if overlap[k,m]<0.15:
+                print(' ')
+                print('new_order ',new_order)
+                print('new_sign ',vec)
+                print('Overlap=',overlap[k,m])
+
+                wrk_si=si_sa_buf.copy()
+                print('Working on si_sa_buf\n',si_sa_buf)
+                for ii in range(x.iroots):
+                    wrk_si[ii,:]=vec[ii]*wrk_si[ii,:]
+                wrk_si[new_order,:]=wrk_si[regular,:]
+                wrk_si=adjust_columns(x, wrk_si, si_sa_zero)
+                diff_si=abs(wrk_si-si_sa_zero)
+                new_diff_si=diff_si.sum()
+                print('si diff=',new_diff_si)
+                if new_diff_si<old_diff_si:
+                    old_diff_si=new_diff_si
+                    new_order=list(order[k])
+                    new_signs=list(vec)
+
+                # overlap_si[k,m]=diff.sum()
+
+            # for i in range(x.iroots):
+                # overlap_si[k,m] += np.dot(si_sa_zero[i,:],wrk[i,:])
+    print('final new_order=',new_order)        
+    print('final new_signs=',new_signs)        
+    # grand_overlap = overlap + overlap_si
+    # ind_ham, ind_sign = np.unravel_index(np.argmin(grand_overlap, axis=None), grand_overlap.shape)
+    # new_order=list(order[ind_ham])
+    # new_signs=list(sign_list[ind_sign])
+    # ind_ham, ind_sign = np.unravel_index(np.argmin(overlap, axis=None), overlap.shape)
+    # new_order=list(order[ind_ham])
+    # new_signs=list(sign_list[ind_sign])
+
+    # print('ind_ham,ind_sign',ind_ham,ind_sign)
+    print(overlap_si)
+    print(overlap)
+    print(" New ORDER of rows =\n",new_order)
+    print(" New SIGNS of rows =\n",new_signs)
+    print('before rotation of rows\n',si_sa_buf)
+
+    for i in range(x.iroots):
+        si_sa_buf[i,:]=new_signs[i]*si_sa_buf[i,:]
+    si_sa_buf[new_order,:]=si_sa_buf[regular,:]
+    print('after rotation of rows\n',si_sa_buf)
+    si_sa_buf=adjust_columns(x, si_sa_buf, si_sa_zero)
+    print('after rotation of Columns\n',si_sa_buf)
+
+    # Adjust Hamiltonian in intermediate basis
+    print('before ham_buf\n',ham_buf)
+    wrk=ham_buf.copy()
+    # vec=list(sign_list[ind_sign])
+    for i in regular:
+        for j in regular:
+            sign[i,j]=new_signs[i]*new_signs[j]
+            ham_buf[new_order[i],new_order[j]] = sign[i,j]*wrk[i,j]
+    print('after ham_buf\n',ham_buf)
+
+    return si_sa_buf, ham_buf
 
 # ------------------ NUMERICAL DIPOLE MOMENTS ----------------------------
 def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out, dip_cms, si_zero, si_sa_zero, ham_zero, ntdm):
@@ -113,63 +247,18 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
                     ham_buf = mc.get_heff_pdft()
                     si_buf  = mc.si_pdft
                     si_sa_buf  = mc.si_mcscf
+                    print('NEXT HAMILTONIAN')
                     # In the presence of field the CMS vectors in the basis of intermediate states  
                     # can flip sign and change order. The following code aims to preserve the order 
                     # and sings as in the zero-field Hamiltonian 
-                    #Swap
-                    for ii in range(x.iroots): #over zero-field intermediate states
-                        for jj in range(x.iroots): #over NON-zero-field intermediate states
-                            ang=np.dot(si_sa_zero[:,ii],si_sa_buf[:,jj])
-                            print(ii,jj,round(ang))
-                            if ii<jj and (round(ang)==1 or round(ang)==-1):
-                                tmp = np.copy(ham_buf[ii,ii])
-                                ham_buf[ii,ii]=ham_buf[jj,jj]
-                                ham_buf[jj,jj]=tmp
-
-                                si_sa_buf[:,[ii,jj]]=si_sa_buf[:,[jj,ii]]
-                                si_buf[[ii,jj],:]=si_buf[[jj,ii],:]
-                    # Flip sign 
-                    for ii in range(x.iroots): #over zero-field intermediate states
-                        for jj in range(x.iroots): #over NON-zero-field intermediate states
-                            ang=np.dot(si_sa_zero[:,ii],si_sa_buf[:,jj])
-                            if round(ang)==-1:
-                                si_sa_buf[:,jj]=-si_sa_buf[:,jj]
-                                si_buf[jj,:]=-si_buf[jj,:]
-                                
-                                for kk in range(x.iroots):
-                                    ham_buf[kk,jj]=-ham_buf[kk,jj]
-                                    ham_buf[jj,kk]=-ham_buf[jj,kk]
-
-
-                    # #Swap
-                    # for ii in range(x.iroots): #over zero-field intermediate states
-                    #     for jj in range(x.iroots): #over NON-zero-field intermediate states
-                    #         ang=np.dot(si_zero[:,ii],si_buf[:,jj])
-                    #         # print(round(ang))
-                    #         if ii<jj and (round(ang)==1 or round(ang)==-1):
-                    #             tmp = np.copy(ham_buf[ii,ii])
-                    #             ham_buf[ii,ii]=ham_buf[jj,jj]
-                    #             ham_buf[jj,jj]=tmp
-
-                    #             si_buf[:,[ii,jj]]=si_buf[:,[jj,ii]]
-                    # # Flip sign 
-                    # for ii in range(x.iroots): #over zero-field intermediate states
-                    #     for jj in range(x.iroots): #over NON-zero-field intermediate states
-                    #         ang=np.dot(si_zero[:,ii],si_buf[:,jj])
-                    #         if round(ang)==-1:
-                    #             si_buf[:,jj]=-si_buf[:,jj]
-                                
-                    #             for kk in range(x.iroots):
-                    #                 ham_buf[kk,jj]=-ham_buf[kk,jj]
-                    #                 ham_buf[jj,kk]=-ham_buf[jj,kk]
-
-
+                    si_sa_buf, ham_buf = adjust_inter_states(x, si_sa_zero, ham_zero, si_sa_buf, ham_buf)
+                    # print('si_sa_BUF AFTER\n',si_sa_buf)
                     #At this point, the order and signs of CMS states should now match those of zero-field Hamiltonian
                     #Store values 
                     ham[k,j,:,:] = ham_buf
-                    si[k,j,:,:] = si_buf
+                    # si[k,j,:,:] = si_buf
                     si_sa[k,j,:,:] = si_sa_buf
-                    print('si_pdft\n',si)
+                    # print('si_pdft\n',si)
                     print('si_sa\n',si_sa)
                     print('H_PQ\n',ham)
                     # e[k] = mc.e_states.tolist() #List of  energies
@@ -183,9 +272,7 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
                 for q in range(x.iroots):
                     if formula == "2-point":
                         der[i,j,p,q]    = (-1)*nist.AU2DEBYE*(-ham[0,j,p,q]+ham[1,j,p,q])/(2*f)
-                        si_der[i,j,p,q] = (-1)*nist.AU2DEBYE*(-si[0,j,p,q]+si[1,j,p,q])/(2*f)
-                    # elif formula == "4-point":
-                    #     der[i,j,p,q] = (-1)*nist.AU2DEBYE*(is_ham[0,j,p,q]-8*is_ham[1,j,p,q]+8*is_ham[2,j,p,q]-is_ham[3,j,p,q])/(12*f)
+                        # si_der[i,j,p,q] = (-1)*nist.AU2DEBYE*(-si[0,j,p,q]+si[1,j,p,q])/(2*f)
         #Loop over i = fields
         id_tdm=-1 #enumerate TDM
         for m in range(x.iroots): # TDMs between <m| and |n> states
@@ -200,9 +287,6 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
                             # dip_num[i,1+j+shift]+=der[i,j,p,q]*si_zero[p][m]*si_zero[q][n] + \
                             #     (si_zero[p][m]*si_der[i,j,q,n]+si_zero[q][n]*si_der[i,j,p,m])*ham_zero[p][q]
 
-                            # dip_num[i,1+j+shift]+=der[i,j,p,q]*si_zero[p][m]*si_zero[q][n]
-                            # dip_num[i,1+j+shift]+=der[i,j,p,q]*si_zero[p][m]*si_zero[q][n] + \
-                            #     (si_zero[p][m]*si_der[i,j,q,n]+si_zero[q][n]*si_der[i,j,p,m])*ham_zero[p][q]
         # Get absolute dipole moment
 
         print('der\n',der) 
@@ -213,18 +297,7 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
             shift=mn*4 # shift to the next state by 4m columns (x,y,z,mu)    
             dip_num[i,4+shift] = np.linalg.norm(dip_num[i,1+shift:4+shift])
 
-        #     for m in range(x.iroots): # Over states
-        #         shift=m*4 # shift to the next state by 4m columns (x,y,z,mu)
-        #         if formula == "2-point":
-        #             dip_num[i,1+j+shift] = (-1)*nist.AU2DEBYE*(-e[0][m]+e[1][m])/(2*f)
-        #         elif formula == "4-point":
-        #             dip_num[i,1+j+shift] = (-1)*nist.AU2DEBYE*(e[0][m]-8*e[1][m]+8*e[2][m]-e[3][m])/(12*f)
-        
-        # # Get absolute dipole moment    
-        # for m in range(x.iroots):
-        #     shift=m*4 # shift to the next state by 4m columns (x,y,z,mu)    
-        #     dip_num[i,4+shift] = np.linalg.norm(dip_num[i,1+shift:4+shift])
-    
+  
     #Save covergence plots
     # num_conv_plot(x, field, dip_num, dist, method, dip_cms)
     return dip_num
@@ -488,7 +561,7 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
                     si_zero=mc.si_pdft
                     si_sa_zero=mc.si_mcscf
                     ham_zero=mc.get_heff_pdft()
-                    print('si_zero\n',si_zero)    
+                    # print('si_zero\n',si_zero)    
                     print('si_sa_zero\n',si_sa_zero)    
                     print('ham_zero\n',ham_zero) 
                 dip_num = numer_run(dist, x, mol, mo, ci, method, field, formula, ifunc, out, dip_cms, si_zero, si_sa_zero, ham_zero, ntdm)
@@ -724,8 +797,8 @@ species=[spiro_11e10o]
 species=[OH_phenol3_10e9o]
 species=[OH_phenol_10e9o]
 species=[phenol_8e7o]
-species=[phenol_8e7o_opt]
 species=[fluorobenzene_6e6o]
+species=[phenol_8e7o_opt]
 species=[phenol_8e7o_sto_3]
 
 # ---------------------- MAIN DRIVER OVER DISTANCES -------------------
