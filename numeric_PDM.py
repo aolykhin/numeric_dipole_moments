@@ -43,7 +43,7 @@ def numer_run(dist, x, mol, mo_zero, numer, field, formula, ifunc, out):
         elif formula == "4-point":
             disp = [-2*f, -f, f, 2*f]
         e = np.zeros((len(disp),x.iroot))
-        if i==0: #initialize MOs to the zero-field MOs 
+        if i==0: #set zero-field MOs as initial guess 
             mo_field = []
             for icoord in range(3): mo_field.append([mo_zero]*len(disp))
 
@@ -68,11 +68,12 @@ def numer_run(dist, x, mol, mo_zero, numer, field, formula, ifunc, out):
                 mc.fcisolver.wfnsym = x.irep
                 mc.fcisolver.max_cycle = 200
                 mc.max_cycle_macro = 200
-                mc.conv_tol=1e-08
                 mo=mo_zero if i==0 else mo_field[j][k]
                 print('j=%s and k=%s' %(j,k))
                 # print(mo)
 
+                mc.conv_tol=1e-08 
+                mc.conv_tol = mc.conv_tol_sarot = 1e-12
                 # MC-PDFT 
                 if numer[0] == 'SS-PDFT':
                     e_mcpdft = mc.kernel(mo)[0]
@@ -83,11 +84,11 @@ def numer_run(dist, x, mol, mo_zero, numer, field, formula, ifunc, out):
                     mc=mc.state_interaction(weights,'cms').run(mo)
                     e_cms = mc.e_states.tolist() #List of CMS energies
                     e[k] = e_cms
-                mo_field[j][k] = mc.mo_coeff #save MOs to be used for the next stencil point 
-                if j==0 and k==0:
-                    molden.from_mo(mol, out+'_ORB_00.molden', mc.mo_coeff)
-                if j==0 and k==1:
-                    molden.from_mo(mol, out+'_ORB_01.molden', mc.mo_coeff)
+                mo_field[j][k] = mc.mo_coeff #save MOs for the next stencil point k and axis j 
+                # if j==0 and k==0:
+                #     molden.from_mo(mol, out+'_ORB_00.molden', mc.mo_coeff)
+                # if j==0 and k==1:
+                #     molden.from_mo(mol, out+'_ORB_01.molden', mc.mo_coeff)
 
             for m in range(x.iroot): # Over CMS states
                 shift=m*4 # shift to the next state by 4m columns (x,y,z,mu)
@@ -183,7 +184,7 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
         mo = mcscf.project_init_guess(cas, mo)
     e_casscf = cas.kernel(mo)[0]
     cas.analyze()
-    # mo = cas.mo_coeff
+    mo = cas.mo_coeff
     # molden.from_mo(mol, out+'.molden', cas.mo_coeff)
 
     #MC-PDFT step
@@ -219,7 +220,8 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
         # ---------------- Analytic MC-PDFT Dipole ----------------------
         for method in analyt:
             if method == 'MC-PDFT' and len(ifunc) < 10 and ifunc!='ftPBE':
-                dipoles = mc.dip_moment(unit='Debye')
+                #make sure mrh prints out both CASSCF and MC-PDFT dipoles
+                dipoles = mc.dip_moment(unit='Debye') 
                 dip_pdft, dip_cas = dipoles[0], dipoles[1]
                 abs_pdft = np.linalg.norm(dip_pdft)
                 abs_cas  = np.linalg.norm(dip_cas)
@@ -293,7 +295,7 @@ def run(x, field, formula, numer, analyt, mo, dist, ontop, scan, dip_scan, en_sc
             for i in range(x.iroot): 
                 header=header+['X', 'Y', 'Z',] 
                 header.append('ABS ({})'.format(cs(str(i+1))))
-            sigfig = (".4f",)+(".3f",)*4*x.iroot
+            sigfig = (".4f",)+(".4f",)*4*x.iroot
             numer_point = pdtabulate(numeric[k], header, sigfig)
             print(numer_point)
             action='w' if scan==False else 'a'
@@ -330,10 +332,11 @@ inc=0.1
 # bonds = np.arange(1.2,3.0+inc,inc) # for energy curves
 
 # Set field range
-field = np.array(np.linspace(1e-3, 1e-2, num=2), ndmin=2).T
+# field = np.array(np.linspace(1e-3, 1e-2, num=2), ndmin=2).T
 field = np.array(np.linspace(1e-3, 1e-2, num=1), ndmin=2).T
 # field = np.array([[0.001],[0.0015]])
 # field = np.array(np.linspace(1e-3, 1e-2, num=19), ndmin=2).T
+# field = np.array(np.linspace(1e-3, 1e-2, num=3), ndmin=2).T
 # inc= 5e-3
 # field = np.array(np.arange(1e-3+inc, 1e-2, inc), ndmin=2).T
 
@@ -354,15 +357,6 @@ analyt = [None]
 numer = ['CMS-PDFT']
 # analyt = ['MC-PDFT','CMS-PDFT']
 
-# from pyscf import gto, symm
-# import basis_set_exchange
-# julccpvdz = {
-#         'H' : gto.load(basis_set_exchange.api.get_basis('jul-cc-pV(D+d)Z', elements='H', fmt='nwchem'), 'H'),
-#         'C' : gto.load(basis_set_exchange.api.get_basis('jul-cc-pV(D+d)Z', elements='C', fmt='nwchem'), 'C'),
-#         'N' : gto.load(basis_set_exchange.api.get_basis('jul-cc-pV(D+d)Z', elements='N', fmt='nwchem'), 'O'),
-#         'O' : gto.load(basis_set_exchange.api.get_basis('jul-cc-pV(D+d)Z', elements='O', fmt='nwchem'), 'N'),
-#         'F' : gto.load(basis_set_exchange.api.get_basis('jul-cc-pV(D+d)Z', elements='F', fmt='nwchem'), 'F'),
-#         }
 # List of molecules and molecular parameters
 geom_ch5 = '''
 C         0.000000000     0.000000000     0.000000000
@@ -385,10 +379,6 @@ H       -0.000000000     -0.950146000    -0.591726000
 C        0.000000000      0.000000000     0.000000000
 O        0.000000000      0.000000000     {}
 '''
-# H        0.000000000      0.942900000    -0.587600000
-# H        0.000000000     -0.942900000    -0.587600000
-# C        0.000000000      0.000000000     0.000000000
-# O        0.000000000      0.000000000     {}
 # O        0.000000000      0.000000000      1.215152000 #equilibrium
 # See class Molecule for the list of variables.
 # It's important to provide a molecule-specific cas_list to get initial MOs for CASSCF
@@ -425,14 +415,14 @@ for x in species:
         run(x, field, formula, numer, analyt, mo, dist, ontop, scan, dip_scan, en_scan)
         
         dip_head = ['Distance','Dipole CASSCF','Dipole MC-PDFT']
-        for i in range(x.iroot): 
+        for j in range(x.iroot): 
             dip_head=dip_head+['X', 'Y', 'Z',] 
-            dip_head.append('ABS ({})'.format(cs(str(i+1))))
+            dip_head.append('ABS ({})'.format(cs(str(j+1))))
         dip_sig = (".2f",)+(".3f",)*(2+4*x.iroot)
         
         en_head=['Distance', 'CASSCF', 'MC-PDFT']
-        for i in range(x.iroot): 
-            line='CMS-PDFT ({})'.format(cs(str(i+1)))
+        for jj in range(x.iroot): 
+            line='CMS-PDFT ({})'.format(cs(str(jj+1)))
             en_head.append(line)
         en_sig = (".2f",)+(".8f",)*(2+x.iroot)
 
