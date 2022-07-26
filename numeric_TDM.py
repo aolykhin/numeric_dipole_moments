@@ -24,8 +24,8 @@ def get_sign_list(x):
     sign_list=[]
     combos=[]
     tmp=[1]*x.iroots
-    for i in range(x.iroots): #all except all states flipped
-    # for i in range(x.iroots+1):
+    # for i in range(x.iroots): #all except all states flipped
+    for i in range(x.iroots+1):
         if i!=0: tmp[i-1]=-1
         combos=itertools.permutations(tmp,x.iroots)
         for i in combos:
@@ -41,7 +41,7 @@ def fix_sa_reference_order(x, mol, ci_buf, ci_zero, si_sa_buf, si_sa_zero):
     for i in range(x.iroots):
         for j in range(x.iroots):
             val=braket(ci_zero[i],ci_buf[j],norb=x.norb,nelec=x.nel)   
-            print('VAL before rounding\n',i,j,val)
+            # print('VAL before rounding\n',i,j,val)
             over[i,j]=int(round(val))
             if over[i,j] !=  0: ci_order.append(j)
             if over[i,j] == -1: ci_signs.append(-1)
@@ -66,26 +66,28 @@ def fix_sa_reference_order(x, mol, ci_buf, ci_zero, si_sa_buf, si_sa_zero):
     # ic(overlap)
     # ic(ci_signs)
 
-    #Print overlap of adjusted ci_buf with ci_zero
-    if mol.verbose >= lib.logger.DEBUG:
-        print('ci_order\n',ci_order)
-        print('ci_signs\n',ci_signs)
-        ci_buf=np.asanyarray(ci_buf)
-        ci_buf[regular]=ci_buf[ci_order]
-        for i, coeff in enumerate(ci_signs): ci_buf[i]=coeff*ci_buf[i]
-        ci_buf=list(ci_buf)
-        for i in range(x.iroots):
-            for j in range(x.iroots):
-                val=braket(ci_zero[i],ci_buf[j],norb=x.norb,nelec=x.nel)   
-                over[i,j]=int(round(val))
-        print('Overlap of CI vectors after adjustment\n',over)
+    # #Print overlap of adjusted ci_buf with ci_zero
+    # if mol.verbose >= lib.logger.DEBUG:
+    #     print('ci_order\n',ci_order)
+    #     print('ci_signs\n',ci_signs)
+    #     ci_buf=np.asanyarray(ci_buf)
+    #     ci_buf[regular]=ci_buf[ci_order]
+    #     for i, coeff in enumerate(ci_signs): ci_buf[i]=coeff*ci_buf[i]
+    #     ci_buf=list(ci_buf)
+    #     for i in range(x.iroots):
+    #         for j in range(x.iroots):
+    #             val=braket(ci_zero[i],ci_buf[j],norb=x.norb,nelec=x.nel)   
+    #             over[i,j]=int(round(val))
+    #     print('Overlap of CI vectors after adjustment\n',over)
 
     #Adjust order & signs of SA states in si_sa_buf 
     # i <-- j, the ci_signs array is given for the rotated states 
-    print('BEFORE CI ADJUSTMENT\n',si_sa_buf)
+    # print('BEFORE CI ADJUSTMENT\n',si_sa_buf)
+    print('ci_order\n',ci_order)
+    print('ci_signs\n',ci_signs)
     si_sa_buf[:,regular]=si_sa_buf[:,ci_order]
-    # for i, coeff in enumerate(ci_signs): si_sa_buf[:,i]=coeff*si_sa_buf[:,i]
-    print('AFTER CI ADJUSTMENT\n',si_sa_buf)
+    for i, coeff in enumerate(ci_signs): si_sa_buf[:,i]=coeff*si_sa_buf[:,i]
+    # print('AFTER CI ADJUSTMENT\n',si_sa_buf)
 
     return si_sa_buf
 
@@ -98,59 +100,56 @@ def fix_order_of_states(x, mol, ci_buf, ci_zero, si_sa_zero, si_in_zero, ham_zer
     sign_list=get_sign_list(x)
     regular=list(range(x.iroots))
 
-    n=len(order)
-    ic(order)
+    n_order=len(order)
+    n_sign=len(sign_list)
+    # ic(order)
 
     # Rotate ROWS of a field-dependent matrix
     sign=np.zeros((x.iroots,x.iroots))
     wrk=np.zeros((x.iroots,x.iroots))
-    dim_sign=len(sign_list)
-    overlap=np.zeros((n,dim_sign))
-    overlap_si=np.zeros((n,dim_sign))
+    overlap=np.zeros((n_order,n_sign))
+    overlap_si=np.zeros((n_order,n_sign))
 
     print('Original Ham\n=',ham_buf)
+    print('Original si_sa\n',si_sa_buf)
     
     old_diff=100 
-    for m, new_signs in enumerate(sign_list): 
-        for k, new_order in enumerate(order):# over all orders of intermediate states
+    for k, new_order in enumerate(order):# over all orders of intermediate states
+        for m, new_signs in enumerate(sign_list): 
             #Selected order of intermediate states with all variations of signs
             for i in regular:
                 for j in regular:
                     sign[i,j]=new_signs[i]*new_signs[j]
                     wrk[i,j] = sign[i,j]*ham_buf[new_order[i],new_order[j]]
 
-            diff=abs(wrk-ham_zero)
-            overlap[k,m]=diff.sum()
+            overlap[k,m]=abs(wrk-ham_zero).sum()
 
-            if overlap[k,m]<0.15: #work with preselected orders based on Hamiltonians overlap
-                ic(new_order)
-                ic(new_signs)
-                ic(overlap[k,m])
-                ic('Adj Ham=')
-                ic(wrk)
-                
-                ic('Working on si_sa_buf',si_sa_buf)
-                # print('Working on si_sa_buf\n',si_sa_buf)
-                for signs_row in sign_list:
-                    for signs_col in sign_list:
-                        wrk_si=si_sa_buf.copy()
-                        for ik in regular:
-                            wrk_si[ik,:]=signs_row[ik]*wrk_si[ik,:]
-                            wrk_si[:,ik]=signs_col[ik]*wrk_si[:,ik]
-                        wrk_si[regular,:]=wrk_si[new_order,:]
+    # b=[]
+    num_smallest=x.iroots*2
+    for i in range(num_smallest):
+        ind = np.unravel_index(np.argmin(overlap, axis=None), overlap.shape)
+        overlap[ind]=100
+        # b.append(ind)
+        new_order = order[ind[0]]       
+        signs_col = sign_list[ind[1]]       
+        
+        for signs_row in sign_list:
+            for signs_col in sign_list:
+                wrk_si=si_sa_buf.copy()
+                for ik in regular:
+                    wrk_si[ik,:]=signs_row[ik]*wrk_si[ik,:]
+                    wrk_si[:,ik]=signs_col[ik]*wrk_si[:,ik]
+                wrk_si[regular,:]=wrk_si[new_order,:]
 
-                        print('Adj si_sa_buf\n',wrk_si)
+                new_diff=abs(wrk_si-si_sa_zero).sum()
 
-                        # wrk_si=adjust_columns(x, wrk_si, si_sa_zero)
-                        diff=abs(wrk_si-si_sa_zero)
-                        new_diff=diff.sum()
-                        ic('si diff=',new_diff)
-                        # print('si diff=',new_diff)
-                        if new_diff<old_diff:
-                            old_diff=new_diff
-                            fin_order=list(new_order)
-                            fin_s_row=list(signs_row)
-                            fin_s_col=list(signs_col)
+                if new_diff<old_diff:
+                    old_diff=new_diff
+                    fin_order=list(new_order)
+                    fin_s_row=list(signs_row)
+                    fin_s_col=list(signs_col)
+
+
     print('Overlap=',overlap[k,m])
 
     # ind_ham, ind_sign = np.unravel_index(np.argmin(overlap, axis=None), overlap.shape)
@@ -197,23 +196,24 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
     si_sa_zero, si_in_zero, ham_zero, ntdm):
     global thresh, max_cyc, nudge_tol
     # Set reference point to be center of charge
-    mol.output='num_'+ out
-    mol.build()
+    # mol.output='num_'+ out
+    # mol.build()
     charges = mol.atom_charges()
     coords  = mol.atom_coords()
     mass = mol.atom_mass_list()
     nuc_charge_center = np.einsum('z,zx->x', charges, coords) / charges.sum()
     mass_center = np.einsum('i,ij->j', mass, coords)/mass.sum()
-    mol.set_common_orig_(mass_center)
+    # mol.set_common_orig_(mass_center)
     # mol.set_common_orig_(nuc_charge_center)
     h_field_off = mol.intor('cint1e_kin_sph') + mol.intor('cint1e_nuc_sph')
 
     dip_num = np.zeros((len(field), 1+4*ntdm))# 1st column is the field column
     tot_der = np.zeros((len(field), 1+4*ntdm))# 1st column is the field column
+    rem_der = np.zeros((len(field), 1+4*ntdm))# 1st column is the field column
     der     = np.zeros((len(field),3,x.iroots,x.iroots)) #Der_PQ matrix per disp and per lambda
     si_der  = np.zeros((len(field),3,x.iroots,x.iroots)) 
     for i, f in enumerate(field): # Over field strengths
-        dip_num[i][0]=f # the first column is the field column 
+        dip_num[i][0]=f #  first column is the field column 
         if formula == "2-point":
             disp = [f, -f]
         elif formula == "4-point":
@@ -226,8 +226,9 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
         if i==0: #set zero-field MOs as initial guess 
             mo_field = []
             ci_field = []
-            for icoord in range(3): mo_field.append([mo_zero]*len(disp))
-            for icoord in range(3): ci_field.append([ci_zero]*len(disp))
+            for xyz in range(3):
+                mo_field.append([mo_zero]*len(disp))
+                ci_field.append([ci_zero]*len(disp))
 
         for j in range(3): # Over x,y,z directions
             for k, v in enumerate(disp): # Over stencil points 
@@ -279,7 +280,7 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
                     mc.conv_tol=thresh
                     mc.sing_tol=thresh
                     mc.nudge_tol=nudge_tol
-                    if mc.converged==False:
+                    if not mc.converged:
                         mc.max_cycle_macro = 200
                         mc.run(mo_zero, ci_zero)
                     
@@ -307,9 +308,9 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
                     si_sa_buf, si_in_buf, ham_buf = fix_order_of_states(x, mol, ci_buf, ci_zero, \
                         si_sa_zero, si_in_zero, ham_zero, si_sa_buf, si_in_buf, ham_buf)
                     
-                    ham[k,j,:,:] = ham_buf
-                    si_in[k,j,:,:] = si_in_buf
-                    si_sa[k,j,:,:] = si_sa_buf
+                    ham  [k,j,:,:] = ham_buf.copy()
+                    si_in[k,j,:,:] = si_in_buf.copy()
+                    si_sa[k,j,:,:] = si_sa_buf.copy()
                     print('si_in\n',si_in)
                     print('si_sa\n',si_sa)
                     print('H_PQ\n',ham)
@@ -326,21 +327,38 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
                         der[i,j,p,q]    = (ham[0,j,p,q]-ham[1,j,p,q])/(2*f)
                         si_der[i,j,p,q] = (si_in[0,j,p,q]-si_in[1,j,p,q])/(2*f)
         #Loop over i = fields
-        id_tdm=-1 #enumerate TDM
+        id_tdm=0 #enumerate TDM
         for m in range(x.iroots): # TDMs between <m| and |n> states
             for n in range(m):
-                id_tdm+=1
+                if m==1 and n==0: print(f'm={m}, n={n}\n')
                 shift=id_tdm*4 # shift to the next state by 4m columns (x,y,z,mu)
                 for j in range(3): #over j = {x,y,z} directions
+                    print(f'j={j}\n')
                     for p in range(x.iroots):
                         for q in range(x.iroots):
-                            dip_num[i,1+j+shift]+=der[i,j,p,q]*si_in_zero[p][m]*si_in_zero[q][n]
+                            # dip_num[i,1+j+shift]+=der[i,j,p,q]*si_in_zero[p][m]*si_in_zero[q][n]
 
-                            tot_der[i,1+j+shift]+=der[i,j,p,q]*si_in_zero[p][m]*si_in_zero[q][n] + \
+                            # rem_der[i,1+j+shift]+=(si_in_zero[p][m]*si_der[i,j,q,n]+si_in_zero[q][n]*si_der[i,j,p,m])*ham_zero[p][q]
+
+                            # tot_der[i,1+j+shift]+=der[i,j,p,q]*si_in_zero[p][m]*si_in_zero[q][n] + \
+                            #     (si_in_zero[p][m]*si_der[i,j,q,n]+si_in_zero[q][n]*si_der[i,j,p,m])*ham_zero[p][q]
+                            
+                            tmp_dip_num = der[i,j,p,q]*si_in_zero[p][m]*si_in_zero[q][n]
+                            dip_num[i,1+j+shift]+=tmp_dip_num 
+
+                            tmp_rem_der = (si_in_zero[p][m]*si_der[i,j,q,n]+si_in_zero[q][n]*si_der[i,j,p,m])*ham_zero[p][q]
+                            rem_der[i,1+j+shift]+=tmp_rem_der
+
+                            tmp_tot_der = der[i,j,p,q]*si_in_zero[p][m]*si_in_zero[q][n] + \
                                 (si_in_zero[p][m]*si_der[i,j,q,n]+si_in_zero[q][n]*si_der[i,j,p,m])*ham_zero[p][q]
+                            tot_der[i,1+j+shift]+= tmp_tot_der
+                            
+                            if m==1 and n==0: print(f'p={p} q={q} dip_num={tmp_dip_num:8.4f}, rem_der={tmp_rem_der:8.4f}, tot_der={tmp_tot_der:8.4f} ')
                     
                     dip_num[i,1+j+shift]=(-1)*nist.AU2DEBYE*dip_num[i,1+j+shift]
+                    rem_der[i,1+j+shift]=(-1)*nist.AU2DEBYE*rem_der[i,1+j+shift]
                     tot_der[i,1+j+shift]=(-1)*nist.AU2DEBYE*tot_der[i,1+j+shift]
+                id_tdm+=1
 
         # Get permamment/transition dipole moment
 
@@ -352,7 +370,16 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
             shift=mn*4 # shift to the next state by 4m columns (x,y,z,mu)    
             dip_num[i,4+shift] = np.linalg.norm(dip_num[i,1+shift:4+shift])
             tot_der[i,4+shift] = np.linalg.norm(tot_der[i,1+shift:4+shift])
-    ic(tot_der)
+    
+    np.set_printoptions(precision=4)
+    # print(dip_num)
+    print('1-0 TDM componenets')
+    print('dip_num',dip_num[0,1:5])
+    print('rem_der',rem_der[0,1:5])
+    print('tot_der',tot_der[0,1:5])
+    # ic(dip_num)
+    # ic(rem_der)
+    # ic(tot_der)
   
     #Save covergence plots
     # num_conv_plot(x, field, dip_num, dist, method, dip_cms)
@@ -378,17 +405,20 @@ def init_guess(y, analyt, numer):
     cas.chkfile = fname
     cas.fcisolver.wfnsym = y.irep
     cas.conv_tol = thresh 
-    if os.path.isfile(fname) == True:
-        print('Read orbs from the SAVED calculations')
-        mo = lib.chkfile.load(fname, 'mcscf/mo_coeff')
-        mo = mcscf.project_init_guess(cas, mo)
-    else:
-        print('Guess orbs from HF at bond length of %3.5f' % (y.init))
-        mo = mcscf.sort_mo(cas, mf.mo_coeff, y.cas_list)
+    # if os.path.isfile(fname) == True:
+    #     print('Read orbs from the SAVED calculations')
+    #     mo = lib.chkfile.load(fname, 'mcscf/mo_coeff')
+    #     mo = mcscf.project_init_guess(cas, mo)
+    # else:
+    #     print(f'Guess MOs from HF at {y.init:3.5f} ang')
+    #     mo = mcscf.sort_mo(cas, mf.mo_coeff, y.cas_list)
+    print(f'Guess MOs from HF at {y.init:3.5f} ang')
+    mo = mcscf.sort_mo(cas, mf.mo_coeff, y.cas_list)
     e_casscf = cas.kernel(mo)[0]
     mo = cas.mo_coeff
-    saFLAG=True if ('CMS-PDFT' or 'SA-PDFT' or 'SA-CASSCF') in (analyt + numer) else False
-    if saFLAG==True:
+
+    sa_required_methods=['CMS-PDFT','SA-PDFT','SA-CASSCF']
+    if any(x in analyt+numer for x in sa_required_methods):
         cas.state_average_(weights)
         e_casscf = cas.kernel(mo)[0]
     cas.analyze()
@@ -406,6 +436,7 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
                 # basis=x.ibasis, symmetry=x.isym)
                 basis=x.ibasis, symmetry=x.isym, verbose=lib.logger.DEBUG)
                 # basis=x.ibasis, symmetry=x.isym, verbose=4)
+    weights=[1/x.iroots]*x.iroots
         
     #Determine origin
     mass = mol.atom_mass_list()
@@ -416,7 +447,6 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
     # mol.set_common_orig_(mass_center)
     
     #HF step
-    weights=[1/x.iroots]*x.iroots
     mf = scf.RHF(mol).set(max_cycle = 1).run()
 
     #SS/SA-CASSCF step
@@ -440,9 +470,9 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
         mo_ss=cas.mo_coeff
         cas.analyze()
         molden.from_mo(mol, out+'_ss.molden', cas.mo_coeff)
-    print(analyt + numer)
-    if 'CMS-PDFT' or 'SA-PDFT' or 'SA-CASSCF' in (analyt + numer):
-        print('Here')
+
+    sa_required_methods=['CMS-PDFT','SA-PDFT','SA-CASSCF']
+    if any(x in analyt+numer for x in sa_required_methods):
         cas.state_average_(weights)
         e_casscf = cas.kernel(mo,ci)[0]
         mo_sa = cas.mo_coeff
@@ -503,8 +533,8 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
             e_states=mc.e_states.tolist() 
             # mo_sa = mc.mo_coeff #SA-CASSCF MOs
             # molden.from_mo(mol, out+'_sa.molden', mc.mo_coeff)
-            if dmcFLAG == True:
-                print("Working on Analytic CMS-PDFT Dipole")
+            if dmcFLAG:
+                print("Working on Analytic CMS-PDFT TDM")
                 id_tdm=0 #enumerate TDM
                 for m in range(x.iroots):
                     for n in range(m):
@@ -526,7 +556,7 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
             mc = mc.state_average_(weights).run(mo,ci)
             e_states = cas.e_states.tolist() #Note cas object not mc 
             # mo_sa = cas.mo_coeff 
-            if dmcFLAG == True:
+            if dmcFLAG:
                 print("Working on Analytic SA-CASSCF TDM")
                 from functools import reduce
                 orbcas = mo[:,cas.ncore:cas.ncore+cas.ncas]
@@ -556,10 +586,7 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
        
         # ---------------- Numerical Dipoles ---------------------------
         #---------------------------------------------------------------
-        if numer == []:
-            print("Numerical dipole is ignored")
-            dip_num = np.zeros((len(field), 4))
-        else:
+        if numer:
             for method in numer:
                 if method == 'MC-PDFT': 
                     raise NotImplementedError
@@ -577,6 +604,9 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
                     print('ham_zero\n',ham_zero) 
                 dip_num = numer_run(dist, x, mol, mo, ci, method, field, formula, ifunc, out, dip_cms, \
                     si_sa_zero, si_in_zero, ham_zero, ntdm)
+        else:
+            print("Numerical dipole is ignored")
+            dip_num = np.zeros((len(field), 4))
             
         analytic[k] = [dist, abs_cas, abs_pdft] + dip_cms
         numeric [k] = dip_num
@@ -597,24 +627,19 @@ def run(x, field, formula, numer, analyt, mo, ci, dist, ontop, scan, dip_scan, e
         en_scan[k].append(en_dist[k]) 
 
         # Print & save numeric dipole moments
-        if numer != []:
+        if numer:
             for method in numer:
                 ot='htPBE0' if len(ifunc)>10 else ifunc
-                print("Numeric dipole at the bond length %s found with %s (%s)" \
-                    %(cs(str(dist)),cs(method),cs(ot)))
-                header=['Field',]
-                for i in range(x.iroots): 
-                    header=header+['X', 'Y', 'Z',] 
-                    header.append('ABS ({})'.format(str(i+1)))
+                print(f"Numeric dipole at {cs(dist)} ang found with {cs(method)} ({cs(ot)})")
+                header=['Field']
+                for i in range(x.iroots):
+                    header+=['X', 'Y', 'Z', f'ABS ({i+1})'] 
                 sigfig = (".4f",)+(".4f",)*4*ntdm
                 numer_point = pdtabulate(numeric[k], header, sigfig)
                 print(numer_point)
                 action='w' if scan==False else 'a'
                 with open(out, action) as f:
-                    f.write("Numeric dipole at %.3f ang found with %s (%s)\n" \
-                        %(dist,method,ot))
-                    # f.write("Analytic dipoles are %.4f\n" \
-                    #     %(dist,method,ot))
+                    f.write(f"Numeric dipole at {dist:.3f} ang found with {method} ({ot})\n")
                     f.write(numer_point)
                     f.write('\n')
     return mo, ci
@@ -845,34 +870,33 @@ for x in species:
         mo, ci = run(x, field, formula, numer, analyt, mo, ci, dist, ontop, scan, dip_scan, en_scan, ntdm, dmcFLAG=dmcFLAG)
         
         dip_head = ['Distance','CASSCF','MC-PDFT']
-        for j in range(x.iroots): 
-            dip_head=dip_head+['X', 'Y', 'Z',] 
-            dip_head.append('ABS ({})'.format(cs(str(j+1))))
+        for j in range(x.iroots):
+            dip_head+=['X', 'Y', 'Z', f'ABS ({cs(j+1)})']
         dip_sig = (".2f",)+(".4f",)*(2+4*ntdm)
         
         en_head=['Distance', 'CASSCF', 'MC-PDFT']
         for method in analyt:
             for jj in range(x.iroots): 
-                line='%s ({})'.format(cs(str(jj+1))) % method
+                line=f'{method} ({cs(jj+1)})'
                 en_head.append(line)
             en_sig = (".2f",)+(".8f",)*(2+x.iroots)
 
         for k, ifunc in enumerate(ontop):
             out = x.iname+'_'+ifunc+'.txt'
-            if analyt!=[]:
-                print("Analytic dipole moments found with %s" %cs(ifunc))
+            if analyt:
+                print(f"Analytic dipole moments found with {cs(ifunc)}")
                 dip_table = pdtabulate(dip_scan[k], dip_head, dip_sig)
                 print(dip_table)
 
-            print("Energies found with %s" %cs(ifunc))
+            print(f"Energies found with {cs(ifunc)}")
             en_table = pdtabulate(en_scan[k], en_head, en_sig)
             print(en_table)
-            action='w' if numer==[] else 'a'
+            action='a' if numer else 'w'
             with open(out, action) as f:
-                f.write("TDMs are found w.r.t. nuclear charge center %s \n" %(ifunc))
-                f.write("The on-top functional is %s \n" %(ifunc))
+                f.write(f"TDMs are found w.r.t. nuclear charge center {ifunc} \n")
+                f.write(f"The on-top functional is {ifunc} \n")
                 f.write(en_table)
                 f.write('\n')
-                if analyt!=[]:
+                if analyt:
                     f.write(dip_table)
                     f.write('\n')
