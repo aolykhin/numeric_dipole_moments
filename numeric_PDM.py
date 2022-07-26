@@ -36,7 +36,8 @@ def numer_run(dist, x, mol, mo_zero, numer, field, formula, ifunc, out):
     # print(mol.atom)
 
     dip_num = np.zeros((len(field), 1+4*x.iroot))# 1st column is the field column
-    for i, f in enumerate(field[:, 0]): # Over field strengths
+    for i, f in enumerate(field): # Over field strengths
+    # for i, f in enumerate(field[:, 0]): # Over field strengths
         dip_num[i][0]=f # the first column is the field column 
         if formula == "2-point":
             disp = [-f, f]
@@ -70,9 +71,7 @@ def numer_run(dist, x, mol, mo_zero, numer, field, formula, ifunc, out):
                 mc.max_cycle_macro = 200
                 mo=mo_zero if i==0 else mo_field[j][k]
                 print('j=%s and k=%s' %(j,k))
-                # print(mo)
 
-                mc.conv_tol=1e-08 
                 mc.conv_tol = mc.conv_tol_sarot = 1e-12
                 # MC-PDFT 
                 if numer[0] == 'SS-PDFT':
@@ -85,10 +84,6 @@ def numer_run(dist, x, mol, mo_zero, numer, field, formula, ifunc, out):
                     e_cms = mc.e_states.tolist() #List of CMS energies
                     e[k] = e_cms
                 mo_field[j][k] = mc.mo_coeff #save MOs for the next stencil point k and axis j 
-                # if j==0 and k==0:
-                #     molden.from_mo(mol, out+'_ORB_00.molden', mc.mo_coeff)
-                # if j==0 and k==1:
-                #     molden.from_mo(mol, out+'_ORB_01.molden', mc.mo_coeff)
 
             for m in range(x.iroot): # Over CMS states
                 shift=m*4 # shift to the next state by 4m columns (x,y,z,mu)
@@ -197,10 +192,6 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
         ot='htPBE0' if len(ifunc)>10 else ifunc
         mol.output=x.iname+'_'+ot+'_'+f"{dist:.2f}"+'.log'
         mol.build()
-        # mf = scf.RHF(mol)
-        # mf.max_cycle = 1
-        # mf.run()
-
 
         #-------------------- MC-PDFT Energy ---------------------------
         mc = mcpdft.CASSCF(mf, ifunc, x.norb, x.nel, grids_level=9)
@@ -238,7 +229,7 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
         mc = mc.state_interaction(weights,'cms').run(mo)
         e_cms=mc.e_states.tolist() #List of CMS energies
         mo_sa = mc.mo_coeff #SS-CASSCF MOs
-        molden.from_mo(mol, out+'_sa_cas.molden', mc.mo_coeff)
+        # molden.from_mo(mol, out+'_sa_cas.molden', mc.mo_coeff)
         # print('\nEnergies: ',e_cms)
 
         # ---------------- Analytic CMS-PDFT Dipole----------------------
@@ -248,8 +239,9 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
         else:
             for method in analyt:
                 if method == 'CMS-PDFT' and len(ifunc) < 10 and ifunc!='ftPBE':
+                    
 
-                    # dipoles = mc.dip_moment(unit='Debye')
+                    # dipoles = mc.dip_moment(state=istate, unit='Debye')
                     # dip_cms = dipoles[0]
                     # abs_cms = np.linalg.norm(dip_cms)
                     # dip_cms = np.array([0, 0, 0])
@@ -332,13 +324,12 @@ inc=0.1
 # bonds = np.arange(1.2,3.0+inc,inc) # for energy curves
 
 # Set field range
-# field = np.array(np.linspace(1e-3, 1e-2, num=2), ndmin=2).T
-field = np.array(np.linspace(1e-3, 1e-2, num=1), ndmin=2).T
-# field = np.array([[0.001],[0.0015]])
-# field = np.array(np.linspace(1e-3, 1e-2, num=19), ndmin=2).T
-# field = np.array(np.linspace(1e-3, 1e-2, num=3), ndmin=2).T
-# inc= 5e-3
-# field = np.array(np.arange(1e-3+inc, 1e-2, inc), ndmin=2).T
+# field = np.linspace(1e-3, 1e-2, num=1)
+field = np.linspace(1e-3, 1e-2, num=2)
+# field = np.linspace(1e-3, 1e-2, num=19)
+# field = np.array([0.001,0.0015])
+# inc= 1e-3
+# field = np.arange(inc, 1e-2, inc)
 
 # Set on-top functional
 ontop= ['tPBE']
