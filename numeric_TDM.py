@@ -129,7 +129,8 @@ def fix_order_of_states(x, mol, ci_buf, ci_zero, si_sa_zero, si_in_zero, ham_zer
                 ic('Adj Ham=')
                 ic(wrk)
                 
-                print('Working on si_sa_buf\n',si_sa_buf)
+                ic('Working on si_sa_buf',si_sa_buf)
+                # print('Working on si_sa_buf\n',si_sa_buf)
                 for signs_row in sign_list:
                     for signs_col in sign_list:
                         wrk_si=si_sa_buf.copy()
@@ -143,7 +144,8 @@ def fix_order_of_states(x, mol, ci_buf, ci_zero, si_sa_zero, si_in_zero, ham_zer
                         # wrk_si=adjust_columns(x, wrk_si, si_sa_zero)
                         diff=abs(wrk_si-si_sa_zero)
                         new_diff=diff.sum()
-                        print('si diff=',new_diff)
+                        ic('si diff=',new_diff)
+                        # print('si diff=',new_diff)
                         if new_diff<old_diff:
                             old_diff=new_diff
                             fin_order=list(new_order)
@@ -171,6 +173,13 @@ def fix_order_of_states(x, mol, ci_buf, ci_zero, si_sa_zero, si_in_zero, ham_zer
         si_in_buf[ii,:]=fin_s_row[ii]*si_in_buf[ii,:] 
     si_in_buf[regular,:]=si_in_buf[fin_order,:]
     
+    #Reflect CMS states (columns) if necessary
+    for i in range(x.iroots):
+        same=abs(si_in_buf[:,i]-si_in_zero[:,i]).sum()
+        oppo=abs(-si_in_buf[:,i]-si_in_zero[:,i]).sum()
+        if same>oppo:
+            si_in_buf[:,i]=-si_in_buf[:,i]
+
     #Rotate Hamiltonian
     tmp=ham_buf.copy()
     for i in regular:
@@ -192,9 +201,11 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
     mol.build()
     charges = mol.atom_charges()
     coords  = mol.atom_coords()
-    nuc_charge_center = np.einsum(
-        'z,zx->x', charges, coords) / charges.sum()
-    mol.set_common_orig_(nuc_charge_center)
+    mass = mol.atom_mass_list()
+    nuc_charge_center = np.einsum('z,zx->x', charges, coords) / charges.sum()
+    mass_center = np.einsum('i,ij->j', mass, coords)/mass.sum()
+    mol.set_common_orig_(mass_center)
+    # mol.set_common_orig_(nuc_charge_center)
     h_field_off = mol.intor('cint1e_kin_sph') + mol.intor('cint1e_nuc_sph')
 
     dip_num = np.zeros((len(field), 1+4*ntdm))# 1st column is the field column
@@ -322,10 +333,10 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
                 for j in range(3): #over j = {x,y,z} directions
                     for p in range(x.iroots):
                         for q in range(x.iroots):
-                            dip_num[i,1+j+shift]+=der[i,j,p,q]*si_in_zero[p][m]*si_in_zero[q][n]
+                            # dip_num[i,1+j+shift]+=der[i,j,p,q]*si_in_zero[p][m]*si_in_zero[q][n]
 
-                            # dip_num[i,1+j+shift]+=der[i,j,p,q]*si_in_zero[p][m]*si_in_zero[q][n] + \
-                            #     (si_in_zero[p][m]*si_der[i,j,q,n]+si_in_zero[q][n]*si_der[i,j,p,m])*ham_zero[p][q]
+                            dip_num[i,1+j+shift]+=der[i,j,p,q]*si_in_zero[p][m]*si_in_zero[q][n] + \
+                                (si_in_zero[p][m]*si_der[i,j,q,n]+si_in_zero[q][n]*si_der[i,j,p,m])*ham_zero[p][q]
 
         # Get permamment/transition dipole moment
 
@@ -341,35 +352,6 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
     #Save covergence plots
     # num_conv_plot(x, field, dip_num, dist, method, dip_cms)
     return dip_num
-
-def num_conv_plot(x, field, dip_num, dist, method, dip_cms):
-    y1=[None]*x.iroots
-    x1=field.flatten()
-    # x1=field
-    for m in range(x.iroots):
-        plt.figure(m)
-        shift=m*4
-        y1[m]=dip_num[:,4+shift]
-        plt.scatter(x1, y1[m])
-        if method == 'CMS-PDFT':
-            analyt_dipole=dip_cms[shift+3]
-        else:
-            raise NotImplementedError
-
-        x_new = np.linspace(x1.min(), x1.max(),500)
-        f = interp1d(x1, y1[m], kind='quadratic')
-        y_smooth=f(x_new)
-        plt.plot (x_new,y_smooth)
-
-        plt.title('Distance = %s and Sate = %s' %((dist,m+1)))
-        plt.xlabel('Field / au')
-        plt.ylabel('Dipole moment / D')
-        plt.ticklabel_format(axis="x", style="sci", scilimits=(0,0))
-        plt.grid(color = 'grey', linestyle = '--', linewidth = 0.5)
-        plt.tick_params(axis='x', which='minor', bottom=False)
-        plt.axhline(y = analyt_dipole, color = 'k', linestyle = ':')
-        plt.savefig('fig_'+x.iname+'_'+f"{dist:.2f}"+'_st_'+str(m+1)+'_'+method+'.png')
-    return
 
 def init_guess(y, analyt, numer):
     global thresh, max_cyc, nudge_tol
@@ -416,8 +398,18 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
     out = x.iname+'_'+f"{dist:.2f}"
     xyz = open(str(dist).zfill(2)+'.xyz').read() if x.geom == 'frames' else x.geom
     mol = gto.M(atom=xyz,charge=x.icharge,spin=x.ispin,output=out+'.log',
+                # basis=x.ibasis, symmetry=x.isym)
                 basis=x.ibasis, symmetry=x.isym, verbose=lib.logger.DEBUG)
                 # basis=x.ibasis, symmetry=x.isym, verbose=4)
+        
+    #Determine origin
+    mass = mol.atom_mass_list()
+    charges = mol.atom_charges()
+    coords = mol.atom_coords()
+    nuc_charge_center = np.einsum('z,zx->x', charges, coords) / charges.sum()
+    mass_center = np.einsum('i,ij->j', mass, coords)/mass.sum()
+    # mol.set_common_orig_(mass_center)
+    
     #HF step
     weights=[1/x.iroots]*x.iroots
     mf = scf.RHF(mol).set(max_cycle = 1).run()
@@ -425,7 +417,6 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
     #SS/SA-CASSCF step
     fname = 'orb_'+ out #file with orbitals
     cas = mcscf.CASSCF(mf, x.norb, x.nel)
-    # cas.natorb = True
     cas.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
     cas.fcisolver.wfnsym = x.irep
     cas.chkfile = fname
@@ -454,16 +445,18 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
         cas.analyze()
         molden.from_mo(mol, out+'_sa.molden', cas.mo_coeff)
     mo=mo_sa #ONLY TRUE FOR TDM!!!!!!!!!!!!!!!
-    #     mo=mo_ss
-    # elif method == 'CMS-PDFT' or method == 'SA-PDFT':
-    #     mo=mo_sa
-    # for m in range(x.iroots):
+    
+    # # NOONs
+    # if 'CMS-PDFT' or 'SA-PDFT' or 'SA-CASSCF' in (analyt + numer):
     #     print('TEST NOONS CASCI ')
-    #     mc_sa = mcscf.CASCI(mf, x.norb, x.nel).state_specific_(m)
-    #     mc_sa.natorb=True
-    #     mc_sa.fix_spin_(ss=x.ispin)
-    #     emc = mc_sa.casci(mo)[0]
-    #     mc_sa.analyze(large_ci_tol=0.05)
+    #     mc_sa = mcscf.CASCI(mf, x.norb, x.nel)
+    #     for m in range(x.iroots):
+    #         mc_sa.fcisolver = csf_solver(mol, smult=x.ispin+1)
+    #         mc_sa.state_specific_(m)
+    #         mc_sa.natorb=True
+    #         mc_sa.fix_spin_(ss=x.ispin)
+    #         emc = mc_sa.casci(mo)[0]
+    #         mc_sa.analyze(large_ci_tol=0.05)
 
     #MC-PDFT step
     numeric  = [None]*len(ontop)
@@ -488,7 +481,6 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
         mc = mcpdft.CASSCF(mf, ifunc, x.norb, x.nel, grids_level=x.grid)
         mc.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
         mc.fcisolver.wfnsym = x.irep
-        # fname = 'orb_main_'+ out 
         mc.chkfile = fname
         mc.max_cycle_macro = 300
 
@@ -513,7 +505,7 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
                     for n in range(m):
                         id_tdm+=1
                         shift=id_tdm*4
-                        tdm=mc.trans_moment(state=[m,n],unit='Debye')
+                        tdm=mc.trans_moment(state=[n,m],unit='Debye')
                         # print(tdm)
                         abs_cms = np.linalg.norm(tdm)
                         dip_cms[shift:shift+3] = tdm
@@ -523,14 +515,7 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
                 dip_cms = np.zeros(4*ntdm).tolist()
         
         if 'SA-PDFT' in (analyt + numer): 
-            mc = mc.state_average_(weights).run(mo,ci)
-            e_states=mc.e_states 
-            # mo_sa = mc.mo_coeff #SA-CASSCF MOs
-            # molden.from_mo(mol, out+'_sa.molden', mc.mo_coeff)
-            if dmcFLAG == True:
-                raise NotImplementedError
-            else:
-                print("Analytic SA-PDFT TDM is ignored")
+            raise NotImplementedError
 
         if 'SA-CASSCF' in (analyt + numer): 
             mc = mc.state_average_(weights).run(mo,ci)
@@ -539,26 +524,13 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
             if dmcFLAG == True:
                 print("Working on Analytic SA-CASSCF TDM")
                 from functools import reduce
-                # ci_buf  = [None]*x.iroots
                 orbcas = mo[:,cas.ncore:cas.ncore+cas.ncas]
-                with mol.with_common_orig((0,0,0)):
+                with mol.with_common_orig(mass_center):
+                # with mol.with_common_orig(nuc_charge_center):
                     dip_ints = mol.intor('cint1e_r_sph', comp=3)
+                    ic(dip_ints)
                 ci_buf=cas.ci
-                # mc = mcscf.CASCI(mf, x.norb, x.nel)
-                # for i in range(x.iroots):
-                #     mc.fcisolver = csf_solver(mol, smult=x.ispin+1)
-                #     mc.state_specific_(i)
-                #     # mc = mcscf.CASCI(mf, x.norb, x.nel).state_specific_(i)
-                #     mc.fix_spin_(ss=x.ispin)
-                #     mc.casci(mo)[0]
-                #     ci_buf[i] = mc.ci
 
-                #charges = mol.atom_charges()
-                #coords = mol.atom_coords()
-                #nuc_charge_center = np.einsum('z,zx->x', charges, coords) / charges.sum()
-                #mol.set_common_orig_(nuc_charge_center)
-                #dip_ints = mol.intor('cint1e_r_sph', comp=3)
-                    #ao_dip = mol.intor_symmetric('int1e_r', comp=3)
                 id_tdm=-1 #enumerate TDM
                 for m in range(x.iroots):
                     for n in range(m):
@@ -567,6 +539,7 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
                         t_dm1 = mc.fcisolver.trans_rdm1(ci_buf[n], ci_buf[m], cas.ncas, cas.nelecas)
                         t_dm1_ao = reduce(np.dot, (orbcas, t_dm1, orbcas.T))
                         tdm = nist.AU2DEBYE*np.einsum('xij,ji->x', dip_ints, t_dm1_ao)
+                        ic(tdm)
                         abs_cms = np.linalg.norm(tdm)
                         oscil = 2/3*abs(e_states[m]-e_states[n])*abs_cms**2
                         dip_cms[shift:shift+3] = tdm
@@ -645,12 +618,12 @@ def run(x, field, formula, numer, analyt, mo, ci, dist, ontop, scan, dip_scan, e
 
 #--------------------- Set Up Parameters for Dipole Moment Curves--------------------
 # Set the bond range
-bonds = np.array([1.2])
-bonds = np.array([3.0,1.2,1.0])
+bonds = np.array([1.0])
 # bonds = np.array([])
-# bonds = np.array([0.969197274]) # equil 10e9o
-# bonds = np.array([0.965469282]) # equil 12e11o
-# bonds = np.array([2.1])
+# bonds = np.array([0.969197274]) # equil 10e9o phenol
+# bonds = np.array([0.965469282]) # equil 12e11o phenol 3 states
+# bonds = np.array([1.214815430]) # equil 6e6o h2co
+
 # inc=0.1
 inc=0.02
 # bonds = np.arange(2.0,2.2+inc,inc) # for energy curves
@@ -662,12 +635,9 @@ inc=0.02
 # bonds = np.arange(0,2,1) 
 
 # Set field range
-# field = np.linspace(1e-3, 1e-2, num=1)
-field = np.linspace(1e-3, 1e-2, num=3)
-field = np.linspace(1e-3, 1e-2, num=19)
 field = np.linspace(1e-3, 1e-2, num=2)
 field = np.linspace(1e-3, 1e-2, num=10)
-field = np.linspace(5e-3, 4e-3, num=2)
+# field = np.linspace(5e-3, 4e-3, num=2)
 field = np.array([0.001])
 # inc= 1e-3
 # field = np.arange(inc, 1e-2, inc)
@@ -690,20 +660,14 @@ ontop= ['tPBE']
 formula= "2-point"
 # formula = "4-point"
 
-# #!!!!!!!!!!!!!
-# field = np.linspace(1e-3, 1e-2, num=19)
-# inc=0.1
-# bonds = np.arange(1.2,3.0+inc,inc) # for energy curves
-
-
 # Set how dipole moments should be computed
 numer  = []
 analyt = []
-# numer = ['CMS-PDFT']
+numer = ['CMS-PDFT']
 # numer = ['SA-PDFT']
-# analyt = ['CMS-PDFT']
+analyt = ['CMS-PDFT']
 # analyt = ['CMS-PDFT','SA-CASSCF']
-analyt = ['SA-CASSCF']
+# analyt = ['SA-CASSCF']
 # analyt = ['SA-PDFT']
 dmcFLAG=False 
 dmcFLAG=True
@@ -776,23 +740,29 @@ H       -0.000000000     -0.950627350     -0.591483790
 C        0.000000000      0.000000000      0.000000000
 O        0.000000000      0.000000000     {}
 '''
-geom_fluorobenzene= '''
-C        0.183499999      1.226261448      0.000000000
-C       -1.221421109      1.211246096      0.000000000
-C        0.855142196      0.000760301      0.000000000
-C       -1.923298868     -0.005687081      0.000000000
-C        0.189109961     -1.227818476      0.000000000
-H       -3.021636707     -0.008151529      0.000000000
-H        0.764791554     -2.162287676      0.000000000
-C       -1.215815905     -1.219374361      0.000000000
-H       -1.759511085     -2.174539458      0.000000000
-H        0.754810367      2.163408242      0.000000000
-F        2.224458801      0.003499952      0.000000000
-H       -1.769650313      2.163822617      0.000000000
+geom_furan= '''
+C        0.000000000     -0.965551055     -2.020010585
+C        0.000000000     -1.993824223     -1.018526668
+C        0.000000000     -1.352073201      0.181141565
+O        0.000000000      0.000000000      0.000000000
+C        0.000000000      0.216762264     -1.346821565
+H        0.000000000     -1.094564216     -3.092622941
+H        0.000000000     -3.062658055     -1.175803180
+H        0.000000000     -1.688293885      1.206105691
+H        0.000000000      1.250242874     -1.655874372
 '''
-
-# GS geom_h2co equilibrium CMS-PDFT (tPBE) (6e,6o) / julccpvdz
-# O        0.000000000      0.000000000      1.214815430 
+geom_butadiene= '''
+C       -1.723496679     -0.622891260      0.000000000
+H       -2.263989282     -1.564248373      0.000000000
+H       -2.311546164      0.289288564      0.000000000
+C       -0.385732145     -0.608988883      0.000000000
+C        0.385732145      0.608988883      0.000000000
+H        0.153350318     -1.554122238      0.000000000
+H       -0.153350318      1.554122238      0.000000000
+C        1.723496679      0.622891260      0.000000000
+H        2.311546164     -0.289288564      0.000000000
+H        2.263989282      1.564248373      0.000000000
+'''
 
 class Molecule:
     def __init__(self, iname, geom, nel, norb, cas_list, init=0, iroots=1, istate=0, 
@@ -813,7 +783,10 @@ class Molecule:
         self.grid     = grid
 
 # See class Molecule for the list of variables.
-h2co_6e6o        = Molecule('h2co_6e6o',    geom_h2co,        6,6, [6,7,8,9,10,12],         init=1.20, iroots=2)
+butadiene_4e4o   = Molecule('butadiene_4e4o',geom_butadiene,  4,4, [14,15,16,17],          ibasis='631g*', iroots=2)
+furan_6e5o       = Molecule('furan_6e5o',    geom_furan,      6,5, [12,17,18,19,20],       ibasis='631g*', iroots=3)
+furan_6e5o_aug   = Molecule('furan_6e5o_aug',geom_furan,      6,5, [12,17,18,23,29],       ibasis='aug-cc-pvdz', iroots=3)
+h2co_6e6o        = Molecule('h2co_6e6o',     geom_h2co,       6,6, [6,7,8,9,10,12],        init=1.20, iroots=2)
 phenol_8e7o_sto  = Molecule('phenol_8e7o_sto',geom_phenol,    8,7, [19,23,24,25,26,27,28], iroots=2, ibasis='sto-3g')
 phenol_8e7o      = Molecule('phenol_8e7o',  geom_phenol,      8,7, [19,23,24,25,31,32,34], init=0.0, iroots=2)
 phenol_8e7o_opt  = Molecule('phenol_opt',  geom_phenol_opt,   8,7, [18,23,24,25,31,33,34], init=0.0, iroots=2)
@@ -825,9 +798,7 @@ phenol_8e7o_sto_4      =  copy.deepcopy(phenol_8e7o_sto)
 phenol_8e7o_sto_3.iroots=3
 phenol_8e7o_sto_4.iroots=4
 spiro_11e10o  = Molecule('spiro_11e10o','frames',11,10,[35,43,50,51,52,53, 55,76,87,100], iroots=2, icharge=1, ispin=1)
-fluorobenzene_6e6o  = Molecule('fluorobenzene_6e6o',geom_fluorobenzene, 6,6, [23,24,25,31,32,34],iroots=3)
-# phenol_12e11o  = Molecule('phenol_12e11o', geom_phenol_12e11o,12,11,[19,20,21,23,24,25,26,31,33,34,58], init=1.3, iroots=3)
-phenol_12e11o  = Molecule('phenol_12e11o', geom_phenol_12e11o,12,11,[19,20,21,23,24,25,26,31,33,34,58], init=1.4, iroots=3)
+phenol_12e11o  = Molecule('phenol_12e11o', geom_phenol_12e11o,12,11,[19,20,21,23,24,25,26,31,33,34,58], init=3.0, iroots=3)
 phenol_12e11o.grid=6
 #Select species for which the dipole moment curves will be constructed
 species=[h2co_6e6o]
@@ -836,12 +807,14 @@ species=[spiro_11e10o]
 species=[OH_phenol3_10e9o]
 species=[OH_phenol_10e9o]
 species=[phenol_8e7o]
-species=[fluorobenzene_6e6o]
 species=[phenol_8e7o_opt]
 species=[phenol_8e7o_sto]
 species=[phenol_8e7o_sto_4]
 species=[phenol_8e7o_sto_3]
 species=[phenol_12e11o]
+species=[furan_6e5o_aug]
+species=[butadiene_4e4o]
+species=[furan_6e5o]
 
 # ---------------------- MAIN DRIVER OVER DISTANCES -------------------
 dip_scan = [ [] for _ in range(len(ontop)) ]
@@ -891,6 +864,7 @@ for x in species:
             print(en_table)
             action='w' if numer==[] else 'a'
             with open(out, action) as f:
+                f.write("TDMs are found w.r.t. nuclear charge center %s \n" %(ifunc))
                 f.write("The on-top functional is %s \n" %(ifunc))
                 f.write(en_table)
                 f.write('\n')
