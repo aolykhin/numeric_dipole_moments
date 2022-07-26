@@ -18,7 +18,7 @@ import itertools
 from numpy import unravel_index
 from icecream import ic
 
-def cs(text): return fg('light_green')+text+attr('reset')
+def cs(text): return fg('light_green')+str(text)+attr('reset')
 
 def get_sign_list(x):
     sign_list=[]
@@ -209,17 +209,18 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
     h_field_off = mol.intor('cint1e_kin_sph') + mol.intor('cint1e_nuc_sph')
 
     dip_num = np.zeros((len(field), 1+4*ntdm))# 1st column is the field column
+    tot_der = np.zeros((len(field), 1+4*ntdm))# 1st column is the field column
+    der     = np.zeros((len(field),3,x.iroots,x.iroots)) #Der_PQ matrix per disp and per lambda
+    si_der  = np.zeros((len(field),3,x.iroots,x.iroots)) 
     for i, f in enumerate(field): # Over field strengths
         dip_num[i][0]=f # the first column is the field column 
         if formula == "2-point":
-            disp = [-f, f]
+            disp = [f, -f]
         elif formula == "4-point":
-            disp = [-2*f, -f, f, 2*f]
+            disp = [2*f, f, -f, -2*f]
         si_in = np.zeros((len(disp),3,x.iroots,x.iroots)) #
         si_sa = np.zeros((len(disp),3,x.iroots,x.iroots)) #
-        si_der = np.zeros((len(field),3,x.iroots,x.iroots)) 
         ham = np.zeros((len(disp),3,x.iroots,x.iroots)) #H_PQ matrix per  disp
-        der = np.zeros((len(field),3,x.iroots,x.iroots)) #Der_PQ matrix per disp and per lambda
         ci_buf  = [None]*x.iroots
         # e = [ [] for _ in range(2) ]
         if i==0: #set zero-field MOs as initial guess 
@@ -322,8 +323,8 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
             for p in range(x.iroots):
                 for q in range(x.iroots):
                     if formula == "2-point":
-                        der[i,j,p,q]    = (-1)*nist.AU2DEBYE*(-ham[0,j,p,q]+ham[1,j,p,q])/(2*f)
-                        si_der[i,j,p,q] = (-1)*nist.AU2DEBYE*(-si_in[0,j,p,q]+si_in[1,j,p,q])/(2*f)
+                        der[i,j,p,q]    = (ham[0,j,p,q]-ham[1,j,p,q])/(2*f)
+                        si_der[i,j,p,q] = (si_in[0,j,p,q]-si_in[1,j,p,q])/(2*f)
         #Loop over i = fields
         id_tdm=-1 #enumerate TDM
         for m in range(x.iroots): # TDMs between <m| and |n> states
@@ -333,10 +334,13 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
                 for j in range(3): #over j = {x,y,z} directions
                     for p in range(x.iroots):
                         for q in range(x.iroots):
-                            # dip_num[i,1+j+shift]+=der[i,j,p,q]*si_in_zero[p][m]*si_in_zero[q][n]
+                            dip_num[i,1+j+shift]+=der[i,j,p,q]*si_in_zero[p][m]*si_in_zero[q][n]
 
-                            dip_num[i,1+j+shift]+=der[i,j,p,q]*si_in_zero[p][m]*si_in_zero[q][n] + \
+                            tot_der[i,1+j+shift]+=der[i,j,p,q]*si_in_zero[p][m]*si_in_zero[q][n] + \
                                 (si_in_zero[p][m]*si_der[i,j,q,n]+si_in_zero[q][n]*si_der[i,j,p,m])*ham_zero[p][q]
+                    
+                    dip_num[i,1+j+shift]=(-1)*nist.AU2DEBYE*dip_num[i,1+j+shift]
+                    tot_der[i,1+j+shift]=(-1)*nist.AU2DEBYE*tot_der[i,1+j+shift]
 
         # Get permamment/transition dipole moment
 
@@ -347,7 +351,8 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
         for mn in range(ntdm):
             shift=mn*4 # shift to the next state by 4m columns (x,y,z,mu)    
             dip_num[i,4+shift] = np.linalg.norm(dip_num[i,1+shift:4+shift])
-
+            tot_der[i,4+shift] = np.linalg.norm(tot_der[i,1+shift:4+shift])
+    ic(tot_der)
   
     #Save covergence plots
     # num_conv_plot(x, field, dip_num, dist, method, dip_cms)
@@ -500,16 +505,16 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
             # molden.from_mo(mol, out+'_sa.molden', mc.mo_coeff)
             if dmcFLAG == True:
                 print("Working on Analytic CMS-PDFT Dipole")
-                id_tdm=-1 #enumerate TDM
+                id_tdm=0 #enumerate TDM
                 for m in range(x.iroots):
                     for n in range(m):
-                        id_tdm+=1
                         shift=id_tdm*4
                         tdm=mc.trans_moment(state=[n,m],unit='Debye')
                         # print(tdm)
                         abs_cms = np.linalg.norm(tdm)
                         dip_cms[shift:shift+3] = tdm
                         dip_cms[shift+3] = abs_cms
+                        id_tdm+=1
             else:
                 print("Analytic CMS-PDFT TDM is ignored")
                 dip_cms = np.zeros(4*ntdm).tolist()
@@ -531,10 +536,9 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
                     ic(dip_ints)
                 ci_buf=cas.ci
 
-                id_tdm=-1 #enumerate TDM
+                id_tdm=0 #enumerate TDM
                 for m in range(x.iroots):
                     for n in range(m):
-                        id_tdm+=1
                         shift=id_tdm*4
                         t_dm1 = mc.fcisolver.trans_rdm1(ci_buf[n], ci_buf[m], cas.ncas, cas.nelecas)
                         t_dm1_ao = reduce(np.dot, (orbcas, t_dm1, orbcas.T))
@@ -544,6 +548,7 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
                         oscil = 2/3*abs(e_states[m]-e_states[n])*abs_cms**2
                         dip_cms[shift:shift+3] = tdm
                         dip_cms[shift+3] = abs_cms
+                        id_tdm+=1
             else:
                 print("Analytic SA-CASSCF TDM is ignored")
                 dip_cms = np.zeros(4*x.iroots).tolist()
