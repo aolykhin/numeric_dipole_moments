@@ -197,9 +197,9 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
         ot='htPBE0' if len(ifunc)>10 else ifunc
         mol.output=x.iname+'_'+ot+'_'+f"{dist:.2f}"+'.log'
         mol.build()
-        mf = scf.RHF(mol)
-        mf.max_cycle = 1
-        mf.run()
+        # mf = scf.RHF(mol)
+        # mf.max_cycle = 1
+        # mf.run()
 
 
         #-------------------- MC-PDFT Energy ---------------------------
@@ -218,19 +218,18 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
         abs_cas  = 0
 
         # ---------------- Analytic MC-PDFT Dipole ----------------------
-        for method in analyt:
-            if method == 'MC-PDFT' and len(ifunc) < 10 and ifunc!='ftPBE':
-                #make sure mrh prints out both CASSCF and MC-PDFT dipoles
-                dipoles = mc.dip_moment(unit='Debye') 
-                dip_pdft, dip_cas = dipoles[0], dipoles[1]
-                abs_pdft = np.linalg.norm(dip_pdft)
-                abs_cas  = np.linalg.norm(dip_cas)
-        # else:
-        #     print("Analytical dipole is ignored")
-        #     dip_pdft = np.array([0, 0, 0])
-        #     dip_cas  = np.array([0, 0, 0])
-        #     abs_pdft = 0
-        #     abs_cas  = 0
+        if analyt == None:
+            print("Analytic MC-PDFT dipole is ignored")
+            abs_pdft = 0
+            abs_cas  = 0
+        else:
+            for method in analyt:
+                if method == 'MC-PDFT' and len(ifunc) < 10 and ifunc!='ftPBE':
+                    #make sure mrh prints out both CASSCF and MC-PDFT dipoles
+                    dipoles = mc.dip_moment(unit='Debye') 
+                    dip_pdft, dip_cas = dipoles[0], dipoles[1]
+                    abs_pdft = np.linalg.norm(dip_pdft)
+                    abs_cas  = np.linalg.norm(dip_cas)
 
         #-------------------- CMS-PDFT Energy ---------------------------
         #CMS-PDF step
@@ -243,30 +242,31 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
         # print('\nEnergies: ',e_cms)
 
         # ---------------- Analytic CMS-PDFT Dipole----------------------
-        for method in analyt:
-            if method == 'CMS-PDFT' and len(ifunc) < 10 and ifunc!='ftPBE':
+        if analyt == None:
+            print("Analytic CMS-PDFT dipole is ignored")
+            dip_cms = np.zeros(4*x.iroot).tolist()
+        else:
+            for method in analyt:
+                if method == 'CMS-PDFT' and len(ifunc) < 10 and ifunc!='ftPBE':
 
-                # dipoles = mc.dip_moment(unit='Debye')
-                # dip_cms = dipoles[0]
-                # abs_cms = np.linalg.norm(dip_cms)
-                # dip_cms = np.array([0, 0, 0])
-                abs_cms = 0
-        # else:
-        #     ("Analytical dipole is ignored")
-        #     dip_cms = np.array([0, 0, 0])
-        #     abs_cms = 0
+                    # dipoles = mc.dip_moment(unit='Debye')
+                    # dip_cms = dipoles[0]
+                    # abs_cms = np.linalg.norm(dip_cms)
+                    # dip_cms = np.array([0, 0, 0])
+                    abs_cms = 0
         
         # ---------------- Numerical Dipoles ---------------------------
         #---------------------------------------------------------------
-        if   numer[0] == 'SS-PDFT':
-            dip_num = numer_run(dist, x, mol, mo_ss, numer, field, formula, ifunc, out)
-        elif numer[0] == 'CMS-PDFT':
-            dip_num = numer_run(dist, x, mol, mo_sa, numer, field, formula, ifunc, out)
-        elif numer[0] == None:
+        if numer == None:
             print("Numerical dipole is ignored")
             dip_num = np.zeros((len(field), 4))
         else:
-            raise NotImplementedError
+            if   numer[0] == 'SS-PDFT':
+                dip_num = numer_run(dist, x, mol, mo_ss, numer, field, formula, ifunc, out)
+            elif numer[0] == 'CMS-PDFT':
+                dip_num = numer_run(dist, x, mol, mo_sa, numer, field, formula, ifunc, out)
+            else:
+                raise NotImplementedError
 
         analytic[k] = [dist, abs_cas, abs_pdft] + dip_cms
         numeric [k] = dip_num
@@ -286,7 +286,7 @@ def run(x, field, formula, numer, analyt, mo, dist, ontop, scan, dip_scan, en_sc
         en_scan[k].append(en_dist[k]) 
 
         # Print & save numeric dipole moments
-        if numer[0] == 'CMS-PDFT' or numer[0] == 'SS-PDFT':
+        if numer != None:
             ot='htPBE0' if len(ifunc)>10 else ifunc
             #! Needs to be changed if multiple numrs are used
             print("Numeric dipole at the bond length %s found with %s (%s)" \
@@ -351,11 +351,13 @@ formula= "2-point"
 # formula = "4-point"
 
 # Set how dipole moments should be computed
-numer  = [None]
-analyt = [None]
+numer  = None
+analyt = None
 # numer = ['SS-PDFT']
 numer = ['CMS-PDFT']
 # analyt = ['MC-PDFT','CMS-PDFT']
+exec('try:numer\nexcept:numer=None')
+exec('try:analyt\nexcept:analyt=None')
 
 # List of molecules and molecular parameters
 geom_ch5 = '''
@@ -386,21 +388,18 @@ crh_7e7o = Molecule('crh_7e7o', geom_crh, 0, 'Coov', 'A1', 5, 'def2tzvpd', 1, 7,
 ch5_2e2o = Molecule('ch5_2e2o', geom_ch5, 0, 'C1',   'A',  0, 'augccpvdz', 1, 2,2,  1.50, [29, 35])
 co_10e8o = Molecule('co_10e8o', geom_co,  0, 'C1',   'A',  0, 'augccpvdz', 3, 10,8, 1.20, [3,4,5,6,7, 8,9,10])
 h2co_8e8o= Molecule('h2co_8e8o',geom_h2co,0, 'C1',   'A',  0, 'julccpvdz', 2, 8,8,  1.20, [3,6,7,8,9,10,12,15])
-# h2co_8e8o= Molecule('h2co_8e8o',geom_h2co,0, 'C1',   'A',  0, 'julccpvdz', 3, 8,8,  1.20, [3,6,7,8,9,10,12,15])
-# h2co_8e7o= Molecule('h2co_8e7o',geom_h2co,0, 'C1',   'A',  0, julccpvdz, 2, 8,7,  1.20, [4,5,6,7,8,9,10])
 
 #Select species for which the dipole moment curves will be constructed
 # species=[crh_7e7o]
 # species=[ch5_2e2o]
 # species=[co_10e8o]
 species=[h2co_8e8o]
-# species=[crh_7e7o, ch5_2e2o]
 
 # ---------------------- MAIN DRIVER OVER DISTANCES -------------------
 dip_scan = [ [] for _ in range(len(ontop)) ]
 en_scan  = [ [] for _ in range(len(ontop)) ] # Empty lists per functional
-
 scan=False if len(bonds)==1 else True #Determine if multiple bonds are passed
+
 for x in species:
     # Get MOs before running a scan
     y=copy.deepcopy(x)
@@ -418,7 +417,7 @@ for x in species:
         for j in range(x.iroot): 
             dip_head=dip_head+['X', 'Y', 'Z',] 
             dip_head.append('ABS ({})'.format(cs(str(j+1))))
-        dip_sig = (".2f",)+(".3f",)*(2+4*x.iroot)
+        dip_sig = (".2f",)+(".4f",)*(2+4*x.iroot)
         
         en_head=['Distance', 'CASSCF', 'MC-PDFT']
         for jj in range(x.iroot): 
@@ -428,7 +427,7 @@ for x in species:
 
         for k, ifunc in enumerate(ontop):
             out = x.iname+'_'+ifunc+'.txt'
-            if analyt[0]!=None:
+            if analyt!=None:
                 print("Analytic dipole moments found with %s" %cs(ifunc))
                 # print(full[k])
                 # print(cms_full[k])
@@ -438,9 +437,9 @@ for x in species:
             print("Energies found with %s" %cs(ifunc))
             en_table = pdtabulate(en_scan[k], en_head, en_sig)
             print(en_table)
-            action='w' if numer==False else 'a'
+            action='w' if numer==None else 'a'
             with open(out, action) as f:
                 f.write("The on-top functional is %s \n" %cs(ifunc))
                 f.write(en_table)
-                if analyt[0]!=None:
+                if analyt!=None:
                     f.write(dip_table)
