@@ -1,5 +1,6 @@
 from tabulate import tabulate
 import matplotlib.pyplot as plt
+from scipy.interpolate import interp1d
 from pyscf import gto, scf, mcscf, lib, lo
 from pyscf.lib import logger
 from mrh.my_pyscf import mcpdft
@@ -20,7 +21,7 @@ from colored import fg, attr
 def cs(text): return fg('light_green')+text+attr('reset')
 
         # ------------------ NUMERICAL DIPOLE MOMENTS ----------------------------
-def numer_run(x, mol, mo_zero, numer, field, formula, ifunc, out):
+def numer_run(dist, x, mol, mo_zero, numer, field, formula, ifunc, out):
 
     au2D = 2.5417464
     # Set reference point to be center of charge
@@ -34,7 +35,7 @@ def numer_run(x, mol, mo_zero, numer, field, formula, ifunc, out):
     h_field_off = mol.intor('cint1e_kin_sph') + mol.intor('cint1e_nuc_sph')
     # print(mol.atom)
 
-    dip_num = np.zeros((len(field), 1+4*x.iroot))
+    dip_num = np.zeros((len(field), 1+4*x.iroot))# 1st column is the field column
     for i, f in enumerate(field[:, 0]): # Over field strengths
         dip_num[i][0]=f # the first column is the field column 
         if formula == "2-point":
@@ -67,7 +68,7 @@ def numer_run(x, mol, mo_zero, numer, field, formula, ifunc, out):
                 mc.fcisolver.wfnsym = x.irep
                 mc.fcisolver.max_cycle = 200
                 mc.max_cycle_macro = 200
-                mc.conv_tol=1e-08 
+                mc.conv_tol=1e-08
                 mo=mo_zero if i==0 else mo_field[j][k]
                 print('j=%s and k=%s' %(j,k))
                 # print(mo)
@@ -89,19 +90,43 @@ def numer_run(x, mol, mo_zero, numer, field, formula, ifunc, out):
                     molden.from_mo(mol, out+'_ORB_01.molden', mc.mo_coeff)
 
             for m in range(x.iroot): # Over CMS states
-                shift=1+m*4 # shift to the next state by 4m columns (x,y,z,mu) and one field column
+                shift=m*4 # shift to the next state by 4m columns (x,y,z,mu)
                 if formula == "2-point":
-                    dip_num[i,j+shift] = (-1)*au2D*(-e[0][m]+e[1][m])/(2*f)  # 2-point
+                    dip_num[i,1+j+shift] = (-1)*au2D*(-e[0][m]+e[1][m])/(2*f)
                 elif formula == "4-point":
-                    dip_num[i,j+shift] = (-1)*au2D*(e[0][m]-8*e[1][m]+8*e[2][m]-e[3][m])/(12*f)  # 4-point
+                    dip_num[i,1+j+shift] = (-1)*au2D*(e[0][m]-8*e[1][m]+8*e[2][m]-e[3][m])/(12*f)
         
         # Get absolute dipole moment    
         for m in range(x.iroot):
-            shift=1+m*4 # shift to the next state by 4m columns (x,y,z,mu) and one field column    
-            dip_num[i,3+shift] = np.linalg.norm(dip_num[i,0+shift:3+shift])
-
-            
+            shift=m*4 # shift to the next state by 4m columns (x,y,z,mu)    
+            dip_num[i,4+shift] = np.linalg.norm(dip_num[i,1+shift:4+shift])
+    
+    #Save mu-over-field plots
+    # num_conv_plot(x, field, dip_num, dist, numer)
     return dip_num
+
+def num_conv_plot(x, field, dip_num, dist, numer):
+    y1=[None]*x.iroot
+    for m in range(x.iroot):
+        x1=field.flatten()
+        shift=m*4
+        y1[m]=dip_num[:,4+shift]
+        plt.scatter(x1, y1[m])    
+
+        x_new = np.linspace(x1.min(), x1.max(),500)
+        f = interp1d(x1, y1[m], kind='quadratic')
+        y_smooth=f(x_new)
+        plt.plot (x_new,y_smooth)
+        
+        plt.title('Distance = %s and Sate = %s' %((dist,m+1)))
+        plt.xlabel('Field / au')
+        plt.ylabel('Dipole moment / D')
+        plt.ticklabel_format(axis="x", style="sci", scilimits=(0,0))
+        plt.grid(color = 'grey', linestyle = '--', linewidth = 0.5)
+        plt.tick_params(axis='x', which='minor', bottom=False)
+        # plt.axhline(y = 0, color = 'k', linestyle = ':')
+        plt.savefig('fig_'+x.iname+'_'+f"{dist:.2f}"+'_st_'+str(m+1)+'_'+numer[0]+'.png')
+    return
 
 def init_guess(y):
     out = y.iname+'_cas'
@@ -232,9 +257,9 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
         # ---------------- Numerical Dipoles ---------------------------
         #---------------------------------------------------------------
         if   numer[0] == 'SS-PDFT':
-            dip_num = numer_run(x, mol, mo_ss, numer, field, formula, ifunc, out)
+            dip_num = numer_run(dist, x, mol, mo_ss, numer, field, formula, ifunc, out)
         elif numer[0] == 'CMS-PDFT':
-            dip_num = numer_run(x, mol, mo_sa, numer, field, formula, ifunc, out)
+            dip_num = numer_run(dist, x, mol, mo_sa, numer, field, formula, ifunc, out)
         elif numer[0] == None:
             print("Numerical dipole is ignored")
             dip_num = np.zeros((len(field), 4))
@@ -268,7 +293,7 @@ def run(x, field, formula, numer, analyt, mo, dist, ontop, scan, dip_scan, en_sc
             for i in range(x.iroot): 
                 header=header+['X', 'Y', 'Z',] 
                 header.append('ABS ({})'.format(cs(str(i+1))))
-            sigfig = (".5f",)+(".6f",)*4*x.iroot
+            sigfig = (".4f",)+(".3f",)*4*x.iroot
             numer_point = pdtabulate(numeric[k], header, sigfig)
             print(numer_point)
             action='w' if scan==False else 'a'
@@ -307,7 +332,6 @@ inc=0.1
 # Set field range
 field = np.array(np.linspace(1e-3, 1e-2, num=2), ndmin=2).T
 field = np.array(np.linspace(1e-3, 1e-2, num=1), ndmin=2).T
-field = np.array(np.linspace(1e-3, 1e-2, num=3), ndmin=2).T
 # field = np.array([[0.001],[0.0015]])
 # field = np.array(np.linspace(1e-3, 1e-2, num=19), ndmin=2).T
 # inc= 5e-3
@@ -320,8 +344,8 @@ ontop= ['tPBE']
 # ontop= [hybrid,'ftPBE']
 
 # Set differentiation technique
-# formula= "2-point"
-formula = "4-point"
+formula= "2-point"
+# formula = "4-point"
 
 # Set how dipole moments should be computed
 numer  = [None]
@@ -404,7 +428,7 @@ for x in species:
         for i in range(x.iroot): 
             dip_head=dip_head+['X', 'Y', 'Z',] 
             dip_head.append('ABS ({})'.format(cs(str(i+1))))
-        dip_sig = (".2f",)+(".6f",)*(2+4*x.iroot)
+        dip_sig = (".2f",)+(".3f",)*(2+4*x.iroot)
         
         en_head=['Distance', 'CASSCF', 'MC-PDFT']
         for i in range(x.iroot): 
