@@ -21,7 +21,7 @@ from colored import fg, attr
 def cs(text): return fg('light_green')+text+attr('reset')
 
         # ------------------ NUMERICAL DIPOLE MOMENTS ----------------------------
-def numer_run(dist, x, mol, mo_zero, numer, field, formula, ifunc, out):
+def numer_run(dist, x, mol, mo_zero, method, field, formula, ifunc, out, dip_cms):
 
     au2D = 2.5417464
     # Set reference point to be center of charge
@@ -72,11 +72,11 @@ def numer_run(dist, x, mol, mo_zero, numer, field, formula, ifunc, out):
 
                 mc.conv_tol = mc.conv_tol_sarot = 1e-12
                 # MC-PDFT 
-                if numer[0] == 'SS-PDFT':
+                if method == 'SS-PDFT':
                     e_mcpdft = mc.kernel(mo)[0]
                     e[k] = e_mcpdft
                 # CMS-PDFT 
-                elif numer[0]=='CMS-PDFT':
+                elif method == 'CMS-PDFT':
                     weights=[1/x.iroot]*x.iroot #Equal weights only
                     mc=mc.state_interaction(weights,'cms').run(mo)
                     e_cms = mc.e_states.tolist() #List of CMS energies
@@ -95,31 +95,36 @@ def numer_run(dist, x, mol, mo_zero, numer, field, formula, ifunc, out):
             shift=m*4 # shift to the next state by 4m columns (x,y,z,mu)    
             dip_num[i,4+shift] = np.linalg.norm(dip_num[i,1+shift:4+shift])
     
-    #Save mu-over-field plots
-    # num_conv_plot(x, field, dip_num, dist, numer)
+    #Save covergence plots
+    num_conv_plot(x, field, dip_num, dist, method, dip_cms)
     return dip_num
 
-def num_conv_plot(x, field, dip_num, dist, numer):
+def num_conv_plot(x, field, dip_num, dist, method, dip_cms):
     y1=[None]*x.iroot
+    x1=field.flatten()
     for m in range(x.iroot):
-        x1=field.flatten()
+        plt.figure(m)
         shift=m*4
         y1[m]=dip_num[:,4+shift]
-        plt.scatter(x1, y1[m])    
+        plt.scatter(x1, y1[m])
+        if method == 'CMS-PDFT':
+            analyt_dipole=dip_cms[shift+3]
+        else:
+            raise NotImplementedError
 
         x_new = np.linspace(x1.min(), x1.max(),500)
         f = interp1d(x1, y1[m], kind='quadratic')
         y_smooth=f(x_new)
         plt.plot (x_new,y_smooth)
-        
+
         plt.title('Distance = %s and Sate = %s' %((dist,m+1)))
         plt.xlabel('Field / au')
         plt.ylabel('Dipole moment / D')
         plt.ticklabel_format(axis="x", style="sci", scilimits=(0,0))
         plt.grid(color = 'grey', linestyle = '--', linewidth = 0.5)
         plt.tick_params(axis='x', which='minor', bottom=False)
-        # plt.axhline(y = 0, color = 'k', linestyle = ':')
-        plt.savefig('fig_'+x.iname+'_'+f"{dist:.2f}"+'_st_'+str(m+1)+'_'+numer[0]+'.png')
+        plt.axhline(y = analyt_dipole, color = 'k', linestyle = ':')
+        plt.savefig('fig_'+x.iname+'_'+f"{dist:.2f}"+'_st_'+str(m+1)+'_'+method+'.png')
     return
 
 def init_guess(y):
@@ -250,12 +255,9 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
             print("Numerical dipole is ignored")
             dip_num = np.zeros((len(field), 4))
         else:
-            if   numer[0] == 'SS-PDFT':
-                dip_num = numer_run(dist, x, mol, mo_ss, numer, field, formula, ifunc, out)
-            elif numer[0] == 'CMS-PDFT':
-                dip_num = numer_run(dist, x, mol, mo_sa, numer, field, formula, ifunc, out)
-            else:
-                raise NotImplementedError
+            for method in numer:
+                dip_num = numer_run(dist, x, mol, mo_ss, method, field, formula, ifunc, out, dip_cms)
+            
 
         analytic[k] = [dist, abs_cas, abs_pdft] + dip_cms
         numeric [k] = dip_num
@@ -276,22 +278,24 @@ def run(x, field, formula, numer, analyt, mo, dist, ontop, scan, dip_scan, en_sc
 
         # Print & save numeric dipole moments
         if numer != None:
-            ot='htPBE0' if len(ifunc)>10 else ifunc
-            #! Needs to be changed if multiple numrs are used
-            print("Numeric dipole at the bond length %s found with %s (%s)" \
-                %(cs(str(dist)),cs(numer[0]),cs(ot)))
-            header=['Field',]
-            for i in range(x.iroot): 
-                header=header+['X', 'Y', 'Z',] 
-                header.append('ABS ({})'.format(cs(str(i+1))))
-            sigfig = (".4f",)+(".4f",)*4*x.iroot
-            numer_point = pdtabulate(numeric[k], header, sigfig)
-            print(numer_point)
-            action='w' if scan==False else 'a'
-            with open(out, action) as f:
-                f.write('Bond length is %s \n' % dist)
-                f.write(numer_point)
-                f.write('\n')
+            for method in numer:
+                ot='htPBE0' if len(ifunc)>10 else ifunc
+                print("Numeric dipole at the bond length %s found with %s (%s)" \
+                    %(cs(str(dist)),cs(method),cs(ot)))
+                header=['Field',]
+                for i in range(x.iroot): 
+                    header=header+['X', 'Y', 'Z',] 
+                    header.append('ABS ({})'.format(str(i+1)))
+                sigfig = (".4f",)+(".4f",)*4*x.iroot
+                numer_point = pdtabulate(numeric[k], header, sigfig)
+                print(numer_point)
+                action='w' if scan==False else 'a'
+                with open(out, action) as f:
+                    f.write("Numeric dipole at the bond length %s found with %s (%s)" \
+                        %(str(dist),method,ot))
+                    # f.write('Bond length is %s \n' % dist)
+                    f.write(numer_point+'\n')
+                    # f.write('\n')
 
 class Molecule:
     def __init__(self, iname, geom, icharge, isym, irep, ispin, ibasis, iroot,
@@ -323,6 +327,7 @@ bonds = np.array([1.2])
 # Set field range
 # field = np.linspace(1e-3, 1e-2, num=1)
 field = np.linspace(1e-3, 1e-2, num=2)
+field = np.linspace(1e-3, 1e-2, num=3)
 # field = np.linspace(1e-3, 1e-2, num=19)
 # field = np.array([0.001,0.0015])
 # inc= 1e-3
@@ -369,8 +374,8 @@ C        0.000000000      0.000000000     0.000000000
 O        0.000000000      0.000000000     {}
 '''
 # O        0.000000000      0.000000000      1.215152000 #equilibrium
+
 # See class Molecule for the list of variables.
-# It's important to provide a molecule-specific cas_list to get initial MOs for CASSCF
 crh_7e7o = Molecule('crh_7e7o', geom_crh, 0, 'Coov', 'A1', 5, 'def2tzvpd', 1, 7,7,  1.60, [10,11,12,13,14,15, 19])
 ch5_2e2o = Molecule('ch5_2e2o', geom_ch5, 0, 'C1',   'A',  0, 'augccpvdz', 1, 2,2,  1.50, [29, 35])
 co_10e8o = Molecule('co_10e8o', geom_co,  0, 'C1',   'A',  0, 'augccpvdz', 3, 10,8, 1.20, [3,4,5,6,7, 8,9,10])
@@ -403,7 +408,7 @@ for x in species:
 
         run(x, field, formula, numer, analyt, mo, dist, ontop, scan, dip_scan, en_scan)
         
-        dip_head = ['Distance','Dipole CASSCF','Dipole MC-PDFT']
+        dip_head = ['Distance','CASSCF','MC-PDFT']
         for j in range(x.iroot): 
             dip_head=dip_head+['X', 'Y', 'Z',] 
             dip_head.append('ABS ({})'.format(cs(str(j+1))))
@@ -419,8 +424,6 @@ for x in species:
             out = x.iname+'_'+ifunc+'.txt'
             if analyt!=None:
                 print("Analytic dipole moments found with %s" %cs(ifunc))
-                # print(full[k])
-                # print(cms_full[k])
                 dip_table = pdtabulate(dip_scan[k], dip_head, dip_sig)
                 print(dip_table)
 
@@ -429,7 +432,7 @@ for x in species:
             print(en_table)
             action='w' if numer==None else 'a'
             with open(out, action) as f:
-                f.write("The on-top functional is %s \n" %cs(ifunc))
+                f.write("The on-top functional is %s \n" %(ifunc))
                 f.write(en_table)
                 if analyt!=None:
                     f.write(dip_table)
