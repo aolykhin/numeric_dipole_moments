@@ -33,11 +33,9 @@ def numer_run(dist, x, mol, mo_zero, numer, field, formula, ifunc, out):
         'z,zx->x', charges, coords) / charges.sum()
     mol.set_common_orig_(nuc_charge_center)
     h_field_off = mol.intor('cint1e_kin_sph') + mol.intor('cint1e_nuc_sph')
-    # print(mol.atom)
 
     dip_num = np.zeros((len(field), 1+4*x.iroot))# 1st column is the field column
     for i, f in enumerate(field): # Over field strengths
-    # for i, f in enumerate(field[:, 0]): # Over field strengths
         dip_num[i][0]=f # the first column is the field column 
         if formula == "2-point":
             disp = [-f, f]
@@ -187,7 +185,7 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
     analytic = [None]*len(ontop)
     en_dist  = [None]*len(ontop) # energy array indexed by functional
 
-    for k, ifunc in enumerate(ontop):
+    for k, ifunc in enumerate(ontop): # Over on-top functionals
 
         ot='htPBE0' if len(ifunc)>10 else ifunc
         mol.output=x.iname+'_'+ot+'_'+f"{dist:.2f}"+'.log'
@@ -239,13 +237,12 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
         else:
             for method in analyt:
                 if method == 'CMS-PDFT' and len(ifunc) < 10 and ifunc!='ftPBE':
-                    
-
-                    # dipoles = mc.dip_moment(state=istate, unit='Debye')
-                    # dip_cms = dipoles[0]
-                    # abs_cms = np.linalg.norm(dip_cms)
-                    # dip_cms = np.array([0, 0, 0])
-                    abs_cms = 0
+                    for m in range(x.iroot):
+                        shift=m*4
+                        dipoles = mc.dip_moment(state=m, unit='Debye')
+                        abs_cms = np.linalg.norm(dipoles)
+                        dip_cms[shift:shift+3] = dipoles
+                        dip_cms[shift+3] = abs_cms
         
         # ---------------- Numerical Dipoles ---------------------------
         #---------------------------------------------------------------
@@ -320,7 +317,7 @@ hybrid = 't'+ mcpdft.hyb('PBE', 0.25, 'average')
 bonds = np.array([1.2])
 # bonds = np.array([1.2,1.3])
 # inc=0.05
-inc=0.1
+# inc=0.1
 # bonds = np.arange(1.2,3.0+inc,inc) # for energy curves
 
 # Set field range
@@ -346,9 +343,8 @@ numer  = None
 analyt = None
 # numer = ['SS-PDFT']
 numer = ['CMS-PDFT']
-# analyt = ['MC-PDFT','CMS-PDFT']
-exec('try:numer\nexcept:numer=None')
-exec('try:analyt\nexcept:analyt=None')
+analyt = ['MC-PDFT','CMS-PDFT']
+
 
 # List of molecules and molecular parameters
 geom_ch5 = '''
@@ -390,6 +386,9 @@ species=[h2co_8e8o]
 dip_scan = [ [] for _ in range(len(ontop)) ]
 en_scan  = [ [] for _ in range(len(ontop)) ] # Empty lists per functional
 scan=False if len(bonds)==1 else True #Determine if multiple bonds are passed
+#In case if numer and analyt are not supplied
+exec('try:numer\nexcept:numer=None')
+exec('try:analyt\nexcept:analyt=None')
 
 for x in species:
     # Get MOs before running a scan
