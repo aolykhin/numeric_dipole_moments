@@ -12,15 +12,25 @@ from pyscf.tools import molden
 import copy
 from colored import fg, attr
 
-
-
-# os.environ['OMP_NUM_THREADS'] = "1"
-# os.environ['MKL_NUM_THREADS'] = "1"
-# os.environ['OPENBLAS_NUM_THREADS'] = "1"
-
 def cs(text): return fg('light_green')+text+attr('reset')
 
-        # ------------------ NUMERICAL DIPOLE MOMENTS ----------------------------
+class Molecule:
+    def __init__(self, iname, geom, icharge, isym, irep, ispin, ibasis, iroot,
+                 nel, norb, init, cas_list):
+        self.iname    = iname
+        self.geom     = geom
+        self.icharge  = icharge
+        self.isym     = isym
+        self.irep     = irep
+        self.ispin    = ispin
+        self.ibasis   = ibasis
+        self.iroot    = iroot
+        self.nel      = nel
+        self.norb     = norb
+        self.init     = init #distance at which initial guess is calculated
+        self.cas_list = cas_list
+
+# ------------------ NUMERICAL DIPOLE MOMENTS ----------------------------
 def numer_run(dist, x, mol, mo_zero, method, field, formula, ifunc, out, dip_cms):
 
     au2D = 2.5417464
@@ -65,22 +75,34 @@ def numer_run(dist, x, mol, mo_zero, method, field, formula, ifunc, out, dip_cms
                 mc = mcpdft.CASSCF(mf_field, ifunc, x.norb, x.nel, grids_level=9)
                 mc.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
                 mc.fcisolver.wfnsym = x.irep
-                mc.fcisolver.max_cycle = 200
-                mc.max_cycle_macro = 200
-                mo=mo_zero if i==0 else mo_field[j][k]
+                # mc.natorb = True
                 print('j=%s and k=%s' %(j,k))
-
-                mc.conv_tol = mc.conv_tol_sarot = 1e-12
+                if i==0: #First field starts with zero-field MOs
+                    mc.max_cycle_macro = 200
+                    mo=mo_zero 
+                else: # Try MOs from the previous filed/point
+                    mc.max_cycle_macro = 15
+                    mo=mo_field[j][k]
+                # if the threshold is too tight the active space is unstable
+                mc.conv_tol = mc.conv_tol_sarot = 1e-9 
                 # MC-PDFT 
                 if method == 'SS-PDFT':
                     e_mcpdft = mc.kernel(mo)[0]
+                    if mc.converged==False: 
+                        mc.max_cycle_macro = 200
+                        e_mcpdft = mc.kernel(mo_zero)[0]
                     e[k] = e_mcpdft
                 # CMS-PDFT 
                 elif method == 'CMS-PDFT':
                     weights=[1/x.iroot]*x.iroot #Equal weights only
                     mc=mc.state_interaction(weights,'cms').run(mo)
+                    if mc.converged==False:
+                        mc.max_cycle_macro = 200
+                        mc.run(mo_zero)
                     e_cms = mc.e_states.tolist() #List of CMS energies
                     e[k] = e_cms
+                else:
+                    raise NotImplementedError
                 mo_field[j][k] = mc.mo_coeff #save MOs for the next stencil point k and axis j 
 
             for m in range(x.iroot): # Over CMS states
@@ -102,6 +124,7 @@ def numer_run(dist, x, mol, mo_zero, method, field, formula, ifunc, out, dip_cms
 def num_conv_plot(x, field, dip_num, dist, method, dip_cms):
     y1=[None]*x.iroot
     x1=field.flatten()
+    # x1=field
     for m in range(x.iroot):
         plt.figure(m)
         shift=m*4
@@ -131,8 +154,7 @@ def init_guess(y):
     out = y.iname+'_cas'
     mol = gto.M(atom=y.geom, charge=y.icharge, spin=y.ispin,
                 output=y.iname+'_init.log', verbose=4, basis=y.ibasis, symmetry=y.isym)
-    mf = scf.RHF(mol)
-    mf.run()
+    mf = scf.RHF(mol).run()
     molden.from_mo(mol,'orb_'+y.iname+'_init_hf.molden', mf.mo_coeff)
     # nocc = mol.nelectron // 2
     # loc = lo.PM(mol, mf.mo_coeff[:,:nocc]).kernel()
@@ -151,7 +173,7 @@ def init_guess(y):
     else:
         print('Guess orbs from HF at bond length of %3.5f' % (y.init))
         mo = mcscf.sort_mo(cas, mf.mo_coeff, y.cas_list)
-    e_casscf = cas.mc2step(mo)[0]
+    e_casscf = cas.kernel(mo)[0]
     cas.analyze()
     mo = cas.mo_coeff
     molden.from_mo(mol, out+'_init_cas.molden', cas.mo_coeff)
@@ -160,17 +182,15 @@ def init_guess(y):
 #-------------Compute energies and dipoles for the given geometry-----------
 def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
     out = x.iname+'_'+f"{dist:.2f}"
-    mol = gto.M(atom=x.geom, charge=x.icharge, spin=x.ispin,
-                output=out+'.log', verbose=4, basis=x.ibasis, symmetry=x.isym)
+    mol = gto.M(atom=x.geom,charge=x.icharge,spin=x.ispin,output=out+'.log',
+                verbose=4, basis=x.ibasis, symmetry=x.isym)
     #HF step
-    mf = scf.RHF(mol)
-    mf.max_cycle = 1
-    mf.run()
+    mf = scf.RHF(mol).set(max_cycle = 1).run()
 
     #CASSCF step
     fname = 'orb_ss_cas_'+ out #file with orbitals
     cas = mcscf.CASSCF(mf, x.norb, x.nel)
-    cas.natorb = True
+    # cas.natorb = True
     cas.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
     cas.fcisolver.wfnsym = x.irep
     cas.chkfile = fname
@@ -226,12 +246,11 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
                     abs_cas  = np.linalg.norm(dip_cas)
 
         #-------------------- CMS-PDFT Energy ---------------------------
-        #CMS-PDF step
         # if cms_method == true:
         weights=[1/x.iroot]*x.iroot #Equal weights only
         mc = mc.state_interaction(weights,'cms').run(mo)
         e_cms=mc.e_states.tolist() #List of CMS energies
-        mo_sa = mc.mo_coeff #SS-CASSCF MOs
+        mo_sa = mc.mo_coeff #SA-CASSCF MOs
         # molden.from_mo(mol, out+'_sa_cas.molden', mc.mo_coeff)
         # print('\nEnergies: ',e_cms)
 
@@ -256,9 +275,12 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
             dip_num = np.zeros((len(field), 4))
         else:
             for method in numer:
-                dip_num = numer_run(dist, x, mol, mo_ss, method, field, formula, ifunc, out, dip_cms)
+                if method == 'MC-PDFT': 
+                    mo=mo_ss
+                elif method == 'CMS-PDFT':
+                    mo=mo_sa
+                dip_num = numer_run(dist, x, mol, mo, method, field, formula, ifunc, out, dip_cms)
             
-
         analytic[k] = [dist, abs_cas, abs_pdft] + dip_cms
         numeric [k] = dip_num
         en_dist [k] = [dist, e_casscf, e_pdft] + e_cms
@@ -291,30 +313,12 @@ def run(x, field, formula, numer, analyt, mo, dist, ontop, scan, dip_scan, en_sc
                 print(numer_point)
                 action='w' if scan==False else 'a'
                 with open(out, action) as f:
-                    f.write("Numeric dipole at the bond length %s found with %s (%s)" \
+                    f.write("Numeric dipole at the bond length %s found with %s (%s)\n" \
                         %(str(dist),method,ot))
-                    # f.write('Bond length is %s \n' % dist)
-                    f.write(numer_point+'\n')
-                    # f.write('\n')
+                    f.write(numer_point)
+                    f.write('\n')
 
-class Molecule:
-    def __init__(self, iname, geom, icharge, isym, irep, ispin, ibasis, iroot,
-                 nel, norb, init, cas_list):
-        self.iname    = iname
-        self.geom     = geom
-        self.icharge  = icharge
-        self.isym     = isym
-        self.irep     = irep
-        self.ispin    = ispin
-        self.ibasis   = ibasis
-        self.iroot    = iroot
-        self.nel      = nel
-        self.norb     = norb
-        self.init     = init #distance at which initial guess is calculated
-        self.cas_list = cas_list
 
-# Set name for tPBE0 (HMC-PDFT functional)
-hybrid = 't'+ mcpdft.hyb('PBE', 0.25, 'average')
 
 #--------------------- Set Up Parameters for Dipole Moment Curves--------------------
 # Set the bond range
@@ -329,10 +333,12 @@ bonds = np.array([1.2])
 field = np.linspace(1e-3, 1e-2, num=2)
 field = np.linspace(1e-3, 1e-2, num=3)
 # field = np.linspace(1e-3, 1e-2, num=19)
-# field = np.array([0.001,0.0015])
+field = np.array([0.0070])
 # inc= 1e-3
 # field = np.arange(inc, 1e-2, inc)
 
+# Set name for tPBE0 (HMC-PDFT functional)
+hybrid = 't'+ mcpdft.hyb('PBE', 0.25, 'average')
 # Set on-top functional
 ontop= ['tPBE']
 # ontop= ['tPBE','tOPBE']
@@ -343,12 +349,19 @@ ontop= ['tPBE']
 formula= "2-point"
 # formula = "4-point"
 
+# #!!!!!!!!!!!!!
+field = np.linspace(1e-3, 1e-2, num=19)
+inc=0.1
+bonds = np.arange(1.2,3.0+inc,inc) # for energy curves
+
+
 # Set how dipole moments should be computed
 numer  = None
 analyt = None
 # numer = ['SS-PDFT']
 numer = ['CMS-PDFT']
 analyt = ['MC-PDFT','CMS-PDFT']
+# analyt = ['CMS-PDFT']
 
 
 # List of molecules and molecular parameters
@@ -434,5 +447,7 @@ for x in species:
             with open(out, action) as f:
                 f.write("The on-top functional is %s \n" %(ifunc))
                 f.write(en_table)
+                f.write('\n')
                 if analyt!=None:
                     f.write(dip_table)
+                    f.write('\n')
