@@ -189,15 +189,23 @@ def fix_order_of_states(x, mol, ci_buf, ci_zero, si_sa_zero, si_in_zero, ham_zer
     print(overlap)
 
     return si_sa_buf, si_in_buf, ham_buf
-    
+
+def fix_signs_of_final_states(x, si_in_zero, si_in_buf):
+    #Reflect CMS states (columns) if necessary
+    for i in range(x.iroots):
+        same=abs(si_in_buf[:,i]-si_in_zero[:,i]).sum()
+        oppo=abs(-si_in_buf[:,i]-si_in_zero[:,i]).sum()
+        if same>oppo:
+            si_in_buf[:,i]=-si_in_buf[:,i]
+    return si_in_buf
 
 # ------------------ NUMERICAL DIPOLE MOMENTS ----------------------------
-def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out, dip_cms, \
+def numer_run(dist, x, mol, mo_zero, ci0_zero, method, field, formula, ifunc, out, dip_cms, \
     si_sa_zero, si_in_zero, ham_zero, ntdm):
     global thresh, max_cyc, nudge_tol
     # Set reference point to be center of charge
-    # mol.output='num_'+ out
-    # mol.build()
+    mol.output='num_'+ out
+    mol.build()
     charges = mol.atom_charges()
     coords  = mol.atom_coords()
     mass = mol.atom_mass_list()
@@ -228,7 +236,7 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
             ci_field = []
             for xyz in range(3):
                 mo_field.append([mo_zero]*len(disp))
-                ci_field.append([ci_zero]*len(disp))
+                ci_field.append([ci0_zero]*len(disp))
 
         for j in range(3): # Over x,y,z directions
             for k, v in enumerate(disp): # Over stencil points 
@@ -256,14 +264,18 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
                 if k==0: point='+F'
                 if k==1: point='-F'
                 print('j=%s and k=%s' %(coord,point))
-                if i==0: #First field starts with zero-field MOs
-                    mc.max_cycle_macro = 200
-                    mo=mo_zero 
-                    ci=ci_zero 
-                else: # Try MOs from the previous filed/point
-                    mc.max_cycle_macro = 5
-                    mo=mo_field[j][k]
-                    ci=ci_field[j][k]
+                mo=mo_zero 
+                ci0=ci0_zero 
+                # mc.max_cycle_macro = 5
+                # if i==0: #First field starts with zero-field MOs
+                #     mc.max_cycle_macro = 200
+                #     mo=mo_zero 
+                #     ci=ci0_zero 
+                # else: # Try MOs from the previous filed/point
+                #     mc.max_cycle_macro = 5
+                #     mo=mo_field[j][k]
+                #     ci=ci_field[j][k]
+
                 # if the threshold is too tight the active space is unstable
                 mc.conv_tol = mc.conv_tol_sarot = thresh 
                 weights=[1/x.iroots]*x.iroots #Equal weights only
@@ -275,26 +287,28 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
                     raise NotImplementedError
                 # CMS-PDFT 
                 elif method == 'CMS-PDFT':
-                    mc=mc.multi_state(weights,'cms').run(mo,ci)
-                    mc.max_cyc=max_cyc
-                    mc.conv_tol=thresh
-                    mc.sing_tol=thresh
-                    mc.nudge_tol=nudge_tol
+                    mc=mc.multi_state(weights,'cms')
+                    # mc.max_cyc=max_cyc
+                    # mc.conv_tol=thresh
+                    # mc.sing_tol=thresh
+                    # mc.nudge_tol=nudge_tol
+                    mc.kernel(mo,ci0=ci0)
                     if not mc.converged:
+                        print('Number of cycles increased')
                         mc.max_cycle_macro = 200
-                        mc.run(mo_zero, ci_zero)
+                        mc.kernel(mo_zero, ci0=ci0_zero)
                     
                     # mc.analyze()
                     #Analyze NOONs
                     molden.from_mo(mol, out+coord+point+'_sa.molden', mc.mo_coeff)
-                    mo_noon=mc.mo_coeff #ONLY TRUE FOR TDM!!!!!!!!!!!!!!!
-                    for m in range(x.iroots):
-                        print('TEST NOONS CASCI ')
-                        mc_noon = mcscf.CASCI(mf_field, x.norb, x.nel).state_specific_(m)
-                        mc_noon.natorb=True
-                        mc_noon.fix_spin_(ss=x.ispin)
-                        emc = mc_noon.casci(mo_noon)[0]
-                        mc_noon.analyze(large_ci_tol=0.05)
+                    # mo_noon=mc.mo_coeff #ONLY TRUE FOR TDM!!!!!!!!!!!!!!!
+                    # for m in range(x.iroots):
+                    #     print('TEST NOONS CASCI ')
+                    #     mc_noon = mcscf.CASCI(mf_field, x.norb, x.nel).state_specific_(m)
+                    #     mc_noon.natorb=True
+                    #     mc_noon.fix_spin_(ss=x.ispin)
+                    #     emc = mc_noon.casci(mo_noon)[0]
+                    #     mc_noon.analyze(large_ci_tol=0.05)
 
                     print('NEXT HAMILTONIAN')
                     e_cms   = mc.e_states.tolist() #List of CMS energies
@@ -305,8 +319,9 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
 
                     # In the presence of field, the sign and order of sa and intermediate states can change
                     # The following code aims to preserve the order and sings as in the zero-field case 
-                    si_sa_buf, si_in_buf, ham_buf = fix_order_of_states(x, mol, ci_buf, ci_zero, \
-                        si_sa_zero, si_in_zero, ham_zero, si_sa_buf, si_in_buf, ham_buf)
+                    # si_sa_buf, si_in_buf, ham_buf = fix_order_of_states(x, mol, ci_buf, ci_zero, \
+                    #     si_sa_zero, si_in_zero, ham_zero, si_sa_buf, si_in_buf, ham_buf)
+                    si_in_buf = fix_signs_of_final_states(x, si_in_zero, si_in_buf)
                     
                     ham  [k,j,:,:] = ham_buf.copy()
                     si_in[k,j,:,:] = si_in_buf.copy()
@@ -365,10 +380,11 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
         print('der\n',der) 
         print('si_der\n',si_der) 
            
-        print('dip_num',dip_num)
+        # print('dip_num',dip_num)
         for mn in range(ntdm):
             shift=mn*4 # shift to the next state by 4m columns (x,y,z,mu)    
             dip_num[i,4+shift] = np.linalg.norm(dip_num[i,1+shift:4+shift])
+            rem_der[i,4+shift] = np.linalg.norm(rem_der[i,1+shift:4+shift])
             tot_der[i,4+shift] = np.linalg.norm(tot_der[i,1+shift:4+shift])
     
     np.set_printoptions(precision=4)
@@ -529,7 +545,7 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
             mc.conv_tol=thresh
             mc.sing_tol=thresh
             mc.nudge_tol=nudge_tol
-            mc.run(mo,ci)
+            mc.kernel(mo,ci)
             e_states=mc.e_states.tolist() 
             # mo_sa = mc.mo_coeff #SA-CASSCF MOs
             # molden.from_mo(mol, out+'_sa.molden', mc.mo_coeff)
@@ -553,7 +569,8 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
             raise NotImplementedError
 
         if 'SA-CASSCF' in (analyt + numer): 
-            mc = mc.state_average_(weights).run(mo,ci)
+            mc = mc.state_average_(weights).kernel(mo,ci)
+            # mc = mc.state_average_(weights).run(mo,ci)
             e_states = cas.e_states.tolist() #Note cas object not mc 
             # mo_sa = cas.mo_coeff 
             if dmcFLAG:
@@ -598,11 +615,11 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
                     si_in_zero=mc.si_pdft
                     si_sa_zero=mc.si_mcscf
                     ham_zero=mc.get_heff_pdft()
-                    ci = mc.ci
+                    ci0 = mc.ci
                     print('si_in_zero\n',si_in_zero)    
                     print('si_sa_zero\n',si_sa_zero)    
                     print('ham_zero\n',ham_zero) 
-                dip_num = numer_run(dist, x, mol, mo, ci, method, field, formula, ifunc, out, dip_cms, \
+                dip_num = numer_run(dist, x, mol, mo, ci0, method, field, formula, ifunc, out, dip_cms, \
                     si_sa_zero, si_in_zero, ham_zero, ntdm)
         else:
             print("Numerical dipole is ignored")
