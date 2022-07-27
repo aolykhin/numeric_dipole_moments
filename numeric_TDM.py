@@ -20,6 +20,8 @@ from icecream import ic
 
 def cs(text): return fg('light_green')+str(text)+attr('reset')
 
+def pdtabulate(df, line1, line2): return tabulate(df, headers=line1, tablefmt='psql', floatfmt=line2)
+
 def get_sign_list(x):
     sign_list=[]
     combos=[]
@@ -261,7 +263,6 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, ci0_zero, method, field, formula, 
                 mc = mcpdft.CASSCF(mf_field, ifunc, x.norb, x.nel, grids_level=x.grid)
                 mc.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
                 mc.fcisolver.wfnsym = x.irep
-                mc.ci=ci_zero
                 if j==0: coord='x'
                 if j==1: coord='y'
                 if j==2: coord='z'
@@ -288,6 +289,7 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, ci0_zero, method, field, formula, 
                 elif method == 'SA-PDFT':
                     raise NotImplementedError
                 elif method == 'CMS-PDFT':
+                    mc.ci=ci_zero
                     mc=mc.multi_state(weights,'cms')
                     # mc.max_cyc=max_cyc
                     # mc.conv_tol=thresh
@@ -298,7 +300,7 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, ci0_zero, method, field, formula, 
                         print('Number of cycles increased')
                         mc.max_cycle_macro = 200
                         mc.kernel(mo_zero, ci0=ci0_zero)
-                    
+                    mc.analyze()
                     #Analyze NOONs
                     molden.from_mo(mol, out+coord+point+'_sa.molden', mc.mo_coeff)
                     # mo_noon=mc.mo_coeff #ONLY TRUE FOR TDM!!!!!!!!!!!!!!!
@@ -637,7 +639,6 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
         en_dist [k] = [dist, e_casscf, e_pdft] + e_states
     return numeric, analytic, en_dist, mo, ci
 
-def pdtabulate(df, line1, line2): return tabulate(df, headers=line1, tablefmt='psql', floatfmt=line2)
 
 # Get dipoles & energies for a fixed distance
 def run(x, field, formula, numer, analyt, mo, ci, dist, ontop, scan, dip_scan, en_scan, ntdm, dmcFLAG=True):
@@ -839,7 +840,9 @@ class Molecule:
 # See class Molecule for the list of variables.
 butadiene_4e4o   = Molecule('butadiene_4e4o',geom_butadiene,  4,4, [14,15,16,17],          ibasis='631g*', iroots=2)
 furan_6e5o       = Molecule('furan_6e5o',    geom_furan,      6,5, [12,17,18,19,20],       ibasis='631g*', iroots=3)
+furan_6e5o_A1       = Molecule('furan_6e5o',    geom_furan,      6,5, [12,17,18,19,20],       ibasis='631g*', iroots=3,isym='C2v', irep='A1')
 furan_6e5o_aug   = Molecule('furan_6e5o_aug',geom_furan,      6,5, [12,17,18,23,29],       ibasis='aug-cc-pvdz', iroots=3)
+furan_6e5o_aug_2 = Molecule('furan_6e5o_aug',geom_furan,      6,5, [12,17,18,23,29],       ibasis='aug-cc-pvdz', iroots=2)
 h2co_6e6o        = Molecule('h2co_6e6o',     geom_h2co,       6,6, [6,7,8,9,10,12],        init=1.20, iroots=2)
 phenol_8e7o_sto  = Molecule('phenol_8e7o_sto',geom_phenol,    8,7, [19,23,24,25,26,27,28], iroots=2, ibasis='sto-3g')
 phenol_8e7o      = Molecule('phenol_8e7o',  geom_phenol,      8,7, [19,23,24,25,31,32,34], init=0.0, iroots=2)
@@ -866,9 +869,11 @@ species=[phenol_8e7o_sto]
 species=[phenol_8e7o_sto_4]
 species=[phenol_8e7o_sto_3]
 species=[phenol_12e11o]
-species=[furan_6e5o_aug]
 species=[butadiene_4e4o]
+species=[furan_6e5o_aug_2]
 species=[furan_6e5o]
+species=[furan_6e5o_aug]
+species=[furan_6e5o_A1]
 
 # ---------------------- MAIN DRIVER OVER DISTANCES -------------------
 dip_scan = [ [] for _ in range(len(ontop)) ]
