@@ -33,15 +33,15 @@ def get_sign_list(x):
                 sign_list.append(i)
     return sign_list
 
-def fix_sa_reference_order(x, mol, ci_buf, ci_zero, si_sa_buf, si_sa_zero):
+def fix_sa_reference_order(x, mol, ci_buf, ci_ref, si_sa_buf, si_sa_zero):
     regular=list(range(x.iroots))
     over=np.zeros((x.iroots,x.iroots),dtype=int)
     ci_order=[]
     ci_signs=[]
     for i in range(x.iroots):
         for j in range(x.iroots):
-            val=braket(ci_zero[i],ci_buf[j],norb=x.norb,nelec=x.nel)   
-            # print('VAL before rounding\n',i,j,val)
+            val=braket(ci_ref[i],ci_buf[j],norb=x.norb,nelec=x.nel)   
+            print('VAL before rounding\n',i,j,val)
             over[i,j]=int(round(val))
             if over[i,j] !=  0: ci_order.append(j)
             if over[i,j] == -1: ci_signs.append(-1)
@@ -66,7 +66,7 @@ def fix_sa_reference_order(x, mol, ci_buf, ci_zero, si_sa_buf, si_sa_zero):
     # ic(overlap)
     # ic(ci_signs)
 
-    # #Print overlap of adjusted ci_buf with ci_zero
+    # #Print overlap of adjusted ci_buf with ci_ref
     # if mol.verbose >= lib.logger.DEBUG:
     #     print('ci_order\n',ci_order)
     #     print('ci_signs\n',ci_signs)
@@ -76,7 +76,7 @@ def fix_sa_reference_order(x, mol, ci_buf, ci_zero, si_sa_buf, si_sa_zero):
     #     ci_buf=list(ci_buf)
     #     for i in range(x.iroots):
     #         for j in range(x.iroots):
-    #             val=braket(ci_zero[i],ci_buf[j],norb=x.norb,nelec=x.nel)   
+    #             val=braket(ci_ref[i],ci_buf[j],norb=x.norb,nelec=x.nel)   
     #             over[i,j]=int(round(val))
     #     print('Overlap of CI vectors after adjustment\n',over)
 
@@ -91,9 +91,9 @@ def fix_sa_reference_order(x, mol, ci_buf, ci_zero, si_sa_buf, si_sa_zero):
 
     return si_sa_buf
 
-def fix_order_of_states(x, mol, ci_buf, ci_zero, si_sa_zero, si_in_zero, ham_zero, si_sa_buf, si_in_buf, ham_buf):
+def fix_order_of_states(x, mol, ci_buf, ci_zero, si_sa_ref, si_in_ref, ham_ref, si_sa_buf, si_in_buf, ham_buf):
     #Rotate sa reference states in expansion over sa reference states
-    si_sa_buf=fix_sa_reference_order(x, mol, ci_buf, ci_zero, si_sa_buf, si_sa_zero)
+    si_sa_buf=fix_sa_reference_order(x, mol, ci_buf, ci_zero, si_sa_buf, si_sa_ref)
 
     # Get all variations of signs & oredr of intermediate states (rows) 
     order=list(itertools.permutations(range(x.iroots)))
@@ -102,7 +102,6 @@ def fix_order_of_states(x, mol, ci_buf, ci_zero, si_sa_zero, si_in_zero, ham_zer
 
     n_order=len(order)
     n_sign=len(sign_list)
-    # ic(order)
 
     # Rotate ROWS of a field-dependent matrix
     sign=np.zeros((x.iroots,x.iroots))
@@ -122,7 +121,7 @@ def fix_order_of_states(x, mol, ci_buf, ci_zero, si_sa_zero, si_in_zero, ham_zer
                     sign[i,j]=new_signs[i]*new_signs[j]
                     wrk[i,j] = sign[i,j]*ham_buf[new_order[i],new_order[j]]
 
-            overlap[k,m]=abs(wrk-ham_zero).sum()
+            overlap[k,m]=abs(wrk-ham_ref).sum()
 
     # b=[]
     num_smallest=x.iroots*2
@@ -141,7 +140,7 @@ def fix_order_of_states(x, mol, ci_buf, ci_zero, si_sa_zero, si_in_zero, ham_zer
                     wrk_si[:,ik]=signs_col[ik]*wrk_si[:,ik]
                 wrk_si[regular,:]=wrk_si[new_order,:]
 
-                new_diff=abs(wrk_si-si_sa_zero).sum()
+                new_diff=abs(wrk_si-si_sa_ref).sum()
 
                 if new_diff<old_diff:
                     old_diff=new_diff
@@ -174,8 +173,8 @@ def fix_order_of_states(x, mol, ci_buf, ci_zero, si_sa_zero, si_in_zero, ham_zer
     
     #Reflect CMS states (columns) if necessary
     for i in range(x.iroots):
-        same=abs(si_in_buf[:,i]-si_in_zero[:,i]).sum()
-        oppo=abs(-si_in_buf[:,i]-si_in_zero[:,i]).sum()
+        same=abs(si_in_buf[:,i]-si_in_ref[:,i]).sum()
+        oppo=abs(-si_in_buf[:,i]-si_in_ref[:,i]).sum()
         if same>oppo:
             si_in_buf[:,i]=-si_in_buf[:,i]
 
@@ -190,19 +189,19 @@ def fix_order_of_states(x, mol, ci_buf, ci_zero, si_sa_zero, si_in_zero, ham_zer
 
     return si_sa_buf, si_in_buf, ham_buf
 
-def fix_signs_of_final_states(x, si_in_zero, si_in_buf):
+def fix_signs_of_final_states(x, si_in_ref, si_in_buf):
     #Reflect CMS states (columns) if necessary
     for i in range(x.iroots):
-        same=abs(si_in_buf[:,i]-si_in_zero[:,i]).sum()
-        oppo=abs(-si_in_buf[:,i]-si_in_zero[:,i]).sum()
+        same=abs(si_in_buf[:,i]-si_in_ref[:,i]).sum()
+        oppo=abs(-si_in_buf[:,i]-si_in_ref[:,i]).sum()
         if same>oppo:
             si_in_buf[:,i]=-si_in_buf[:,i]
     return si_in_buf
 
 # ------------------ NUMERICAL DIPOLE MOMENTS ----------------------------
-def numer_run(dist, x, mol, mo_zero, ci0_zero, method, field, formula, ifunc, out, dip_cms, \
+def numer_run(dist, x, mol, mo_zero, ci_zero, ci0_zero, method, field, formula, ifunc, out, dip_cms, \
     si_sa_zero, si_in_zero, ham_zero, ntdm):
-    global thresh, max_cyc, nudge_tol
+
     # Set reference point to be center of charge
     mol.output='num_'+ out
     mol.build()
@@ -213,12 +212,13 @@ def numer_run(dist, x, mol, mo_zero, ci0_zero, method, field, formula, ifunc, ou
     mass_center = np.einsum('i,ij->j', mass, coords)/mass.sum()
     # mol.set_common_orig_(mass_center)
     # mol.set_common_orig_(nuc_charge_center)
-    h_field_off = mol.intor('cint1e_kin_sph') + mol.intor('cint1e_nuc_sph')
 
-    dip_num = np.zeros((len(field), 1+4*ntdm))# 1st column is the field column
-    tot_der = np.zeros((len(field), 1+4*ntdm))# 1st column is the field column
-    rem_der = np.zeros((len(field), 1+4*ntdm))# 1st column is the field column
-    der     = np.zeros((len(field),3,x.iroots,x.iroots)) #Der_PQ matrix per disp and per lambda
+    h_field_off = mol.intor('cint1e_kin_sph') + mol.intor('cint1e_nuc_sph')
+    # 1st column is the field column
+    dip_num = np.zeros((len(field), 1+4*ntdm))
+    tot_der = np.zeros((len(field), 1+4*ntdm))
+    rem_der = np.zeros((len(field), 1+4*ntdm))
+    ham_der = np.zeros((len(field),3,x.iroots,x.iroots)) 
     si_der  = np.zeros((len(field),3,x.iroots,x.iroots)) 
     for i, f in enumerate(field): # Over field strengths
         dip_num[i][0]=f #  first column is the field column 
@@ -228,15 +228,18 @@ def numer_run(dist, x, mol, mo_zero, ci0_zero, method, field, formula, ifunc, ou
             disp = [2*f, f, -f, -2*f]
         si_in = np.zeros((len(disp),3,x.iroots,x.iroots)) #
         si_sa = np.zeros((len(disp),3,x.iroots,x.iroots)) #
-        ham = np.zeros((len(disp),3,x.iroots,x.iroots)) #H_PQ matrix per  disp
+        ham = np.zeros((len(disp),3,x.iroots,x.iroots)) 
+        ci_sa = [ [0] * 3] * len(disp)
         ci_buf  = [None]*x.iroots
         # e = [ [] for _ in range(2) ]
         if i==0: #set zero-field MOs as initial guess 
             mo_field = []
             ci_field = []
-            for xyz in range(3):
+            ci0_field = []
+            for _ in range(3):
                 mo_field.append([mo_zero]*len(disp))
-                ci_field.append([ci0_zero]*len(disp))
+                ci_field.append([ci_zero]*len(disp))
+                ci0_field.append([ci0_zero]*len(disp))
 
         for j in range(3): # Over x,y,z directions
             for k, v in enumerate(disp): # Over stencil points 
@@ -254,10 +257,11 @@ def numer_run(dist, x, mol, mo_zero, ci0_zero, method, field, formula, ifunc, ou
                 mf_field.max_cycle = 1  # next CASSCF starts from CAS orbitals not RHF
                 mf_field.kernel()
 
+                
                 mc = mcpdft.CASSCF(mf_field, ifunc, x.norb, x.nel, grids_level=x.grid)
                 mc.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
                 mc.fcisolver.wfnsym = x.irep
-                # mc.natorb = True
+                mc.ci=ci_zero
                 if j==0: coord='x'
                 if j==1: coord='y'
                 if j==2: coord='z'
@@ -279,13 +283,10 @@ def numer_run(dist, x, mol, mo_zero, ci0_zero, method, field, formula, ifunc, ou
                 # if the threshold is too tight the active space is unstable
                 mc.conv_tol = mc.conv_tol_sarot = thresh 
                 weights=[1/x.iroots]*x.iroots #Equal weights only
-                # MC-PDFT 
                 if method == 'SS-PDFT':
                     raise NotImplementedError
-                # SA-PDFT 
                 elif method == 'SA-PDFT':
                     raise NotImplementedError
-                # CMS-PDFT 
                 elif method == 'CMS-PDFT':
                     mc=mc.multi_state(weights,'cms')
                     # mc.max_cyc=max_cyc
@@ -298,7 +299,6 @@ def numer_run(dist, x, mol, mo_zero, ci0_zero, method, field, formula, ifunc, ou
                         mc.max_cycle_macro = 200
                         mc.kernel(mo_zero, ci0=ci0_zero)
                     
-                    # mc.analyze()
                     #Analyze NOONs
                     molden.from_mo(mol, out+coord+point+'_sa.molden', mc.mo_coeff)
                     # mo_noon=mc.mo_coeff #ONLY TRUE FOR TDM!!!!!!!!!!!!!!!
@@ -318,17 +318,24 @@ def numer_run(dist, x, mol, mo_zero, ci0_zero, method, field, formula, ifunc, ou
                     si_sa_buf  = mc.si_mcscf
 
                     # In the presence of field, the sign and order of sa and intermediate states can change
+                    if k!=0: # Adjust states to k==0
+                        ham_ref   = ham[0,j,:,:].copy()
+                        si_in_ref = si_in[0,j,:,:].copy()
+                        si_sa_ref = si_sa[0,j,:,:].copy()
+                        ci_ref    = ci_sa[0][j]
+                        si_sa_buf, si_in_buf, ham_buf = fix_order_of_states(x, mol, ci_buf, ci_ref, \
+                        si_sa_ref, si_in_ref, ham_ref, si_sa_buf, si_in_buf, ham_buf)
+                        
                     # The following code aims to preserve the order and sings as in the zero-field case 
                     # si_sa_buf, si_in_buf, ham_buf = fix_order_of_states(x, mol, ci_buf, ci_zero, \
                     #     si_sa_zero, si_in_zero, ham_zero, si_sa_buf, si_in_buf, ham_buf)
-                    si_in_buf = fix_signs_of_final_states(x, si_in_zero, si_in_buf)
+                    # si_in_buf = fix_signs_of_final_states(x, si_in_zero, si_in_buf)
                     
                     ham  [k,j,:,:] = ham_buf.copy()
                     si_in[k,j,:,:] = si_in_buf.copy()
                     si_sa[k,j,:,:] = si_sa_buf.copy()
-                    print('si_in\n',si_in)
-                    print('si_sa\n',si_sa)
-                    print('H_PQ\n',ham)
+                    ci_sa[k][j] = ci_buf
+
                     # e[k] = mc.e_states.tolist() #List of  energies
                 else:
                     raise NotImplementedError
@@ -339,7 +346,7 @@ def numer_run(dist, x, mol, mo_zero, ci0_zero, method, field, formula, ifunc, ou
             for p in range(x.iroots):
                 for q in range(x.iroots):
                     if formula == "2-point":
-                        der[i,j,p,q]    = (ham[0,j,p,q]-ham[1,j,p,q])/(2*f)
+                        ham_der[i,j,p,q]= (ham[0,j,p,q]-ham[1,j,p,q])/(2*f)
                         si_der[i,j,p,q] = (si_in[0,j,p,q]-si_in[1,j,p,q])/(2*f)
         #Loop over i = fields
         id_tdm=0 #enumerate TDM
@@ -358,13 +365,13 @@ def numer_run(dist, x, mol, mo_zero, ci0_zero, method, field, formula, ifunc, ou
                             # tot_der[i,1+j+shift]+=der[i,j,p,q]*si_in_zero[p][m]*si_in_zero[q][n] + \
                             #     (si_in_zero[p][m]*si_der[i,j,q,n]+si_in_zero[q][n]*si_der[i,j,p,m])*ham_zero[p][q]
                             
-                            tmp_dip_num = der[i,j,p,q]*si_in_zero[p][m]*si_in_zero[q][n]
+                            tmp_dip_num = ham_der[i,j,p,q]*si_in_zero[p][m]*si_in_zero[q][n]
                             dip_num[i,1+j+shift]+=tmp_dip_num 
 
                             tmp_rem_der = (si_in_zero[p][m]*si_der[i,j,q,n]+si_in_zero[q][n]*si_der[i,j,p,m])*ham_zero[p][q]
                             rem_der[i,1+j+shift]+=tmp_rem_der
 
-                            tmp_tot_der = der[i,j,p,q]*si_in_zero[p][m]*si_in_zero[q][n] + \
+                            tmp_tot_der = ham_der[i,j,p,q]*si_in_zero[p][m]*si_in_zero[q][n] + \
                                 (si_in_zero[p][m]*si_der[i,j,q,n]+si_in_zero[q][n]*si_der[i,j,p,m])*ham_zero[p][q]
                             tot_der[i,1+j+shift]+= tmp_tot_der
                             
@@ -377,18 +384,24 @@ def numer_run(dist, x, mol, mo_zero, ci0_zero, method, field, formula, ifunc, ou
 
         # Get permamment/transition dipole moment
 
-        print('der\n',der) 
+        print('der\n',ham_der) 
         print('si_der\n',si_der) 
            
-        # print('dip_num',dip_num)
         for mn in range(ntdm):
             shift=mn*4 # shift to the next state by 4m columns (x,y,z,mu)    
             dip_num[i,4+shift] = np.linalg.norm(dip_num[i,1+shift:4+shift])
             rem_der[i,4+shift] = np.linalg.norm(rem_der[i,1+shift:4+shift])
             tot_der[i,4+shift] = np.linalg.norm(tot_der[i,1+shift:4+shift])
-    
+                    
+    print('si_in_zero\n',si_in_zero)    
+    print('si_in\n',si_in)
+    print('si_sa_zero\n',si_sa_zero)    
+    print('si_sa\n',si_sa)
+    print('ham_zero\n',ham_zero) 
+    print('H_PQ\n',ham)
+
+
     np.set_printoptions(precision=4)
-    # print(dip_num)
     print('1-0 TDM componenets')
     print('dip_num',dip_num[0,1:5])
     print('rem_der',rem_der[0,1:5])
@@ -402,7 +415,6 @@ def numer_run(dist, x, mol, mo_zero, ci0_zero, method, field, formula, ifunc, ou
     return dip_num
 
 def init_guess(y, analyt, numer):
-    global thresh, max_cyc, nudge_tol
     out = y.iname+'_cas'
     xyz = open('00.xyz').read() if y.geom == 'frames' else y.geom
     mol = gto.M(atom=xyz, charge=y.icharge, spin=y.ispin,
@@ -414,7 +426,6 @@ def init_guess(y, analyt, numer):
     # loc = lo.PM(mol, mf.mo_coeff[:,:nocc]).kernel()
     # molden.from_mo(mol,'orb_'+y.iname+'_init_hf_loc.molden', loc)
 
-    # fname = 'orb_'+y.iname+'_init_casscf' #file with SAVED orbitals
     fname = 'orb_'+ out
     cas = mcscf.CASSCF(mf, y.norb, y.nel)
     cas.natorb = True
@@ -445,7 +456,6 @@ def init_guess(y, analyt, numer):
 
 #-------------Compute energies and dipoles for the given geometry-----------
 def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcFLAG=True):
-    global thresh, max_cyc, nudge_tol
     out = x.iname+'_'+f"{dist:.2f}"
     xyz = open(str(dist).zfill(2)+'.xyz').read() if x.geom == 'frames' else x.geom
     mol = gto.M(atom=xyz,charge=x.icharge,spin=x.ispin,output=out+'.log',
@@ -495,7 +505,8 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
         ci = cas.ci
         cas.analyze()
         molden.from_mo(mol, out+'_sa.molden', cas.mo_coeff)
-    mo=mo_sa #ONLY TRUE FOR TDM!!!!!!!!!!!!!!!
+    mo=cas.mo_coeff #ONLY TRUE FOR TDM!!!!!!!!!!!!!!!
+    ci=cas.ci #ONLY TRUE FOR TDM!!!!!!!!!!!!!!!
     
     # # NOONs
     # if 'CMS-PDFT' or 'SA-PDFT' or 'SA-CASSCF' in (analyt + numer):
@@ -609,17 +620,13 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
                     raise NotImplementedError
                     # mo=mo_ss
                 elif method == 'CMS-PDFT' or method == 'SA-PDFT':
-                    # mo=mo_sa
-                    # si_zero=mc.si_mat
-                    # ham_zero=mc.ham
                     si_in_zero=mc.si_pdft
                     si_sa_zero=mc.si_mcscf
                     ham_zero=mc.get_heff_pdft()
                     ci0 = mc.ci
-                    print('si_in_zero\n',si_in_zero)    
-                    print('si_sa_zero\n',si_sa_zero)    
-                    print('ham_zero\n',ham_zero) 
-                dip_num = numer_run(dist, x, mol, mo, ci0, method, field, formula, ifunc, out, dip_cms, \
+
+                dip_num = numer_run(dist, x, mol, mo, ci, ci0, method, \
+                    field, formula, ifunc, out, dip_cms, \
                     si_sa_zero, si_in_zero, ham_zero, ntdm)
         else:
             print("Numerical dipole is ignored")
