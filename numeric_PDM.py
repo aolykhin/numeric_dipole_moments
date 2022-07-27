@@ -30,14 +30,14 @@ def numer_run(dist, x, mol, mo_zero, method, field, formula, ifunc, out, dip_cms
     mol.set_common_orig_(nuc_charge_center)
     h_field_off = mol.intor('cint1e_kin_sph') + mol.intor('cint1e_nuc_sph')
 
-    dip_num = np.zeros((len(field), 1+4*x.iroot))# 1st column is the field column
+    dip_num = np.zeros((len(field), 1+4*x.iroots))# 1st column is the field column
     for i, f in enumerate(field): # Over field strengths
         dip_num[i][0]=f # the first column is the field column 
         if formula == "2-point":
             disp = [-f, f]
         elif formula == "4-point":
             disp = [-2*f, -f, f, 2*f]
-        e = np.zeros((len(disp),x.iroot))
+        e = np.zeros((len(disp),x.iroots))
         if i==0: #set zero-field MOs as initial guess 
             mo_field = []
             for icoord in range(3): mo_field.append([mo_zero]*len(disp))
@@ -71,6 +71,7 @@ def numer_run(dist, x, mol, mo_zero, method, field, formula, ifunc, out, dip_cms
                     mo=mo_field[j][k]
                 # if the threshold is too tight the active space is unstable
                 mc.conv_tol = mc.conv_tol_sarot = thresh 
+                weights=[1/x.iroots]*x.iroots #Equal weights only
                 # MC-PDFT 
                 if method == 'SS-PDFT':
                     e_mcpdft = mc.kernel(mo)[0]
@@ -78,20 +79,25 @@ def numer_run(dist, x, mol, mo_zero, method, field, formula, ifunc, out, dip_cms
                         mc.max_cycle_macro = 200
                         e_mcpdft = mc.kernel(mo_zero)[0]
                     e[k] = e_mcpdft
+                # SA-PDFT 
+                elif method == 'SA-PDFT':
+                    mc=mc.state_average_(weights).run(mo)
+                    if mc.converged==False:
+                        mc.max_cycle_macro = 200
+                        mc.run(mo_zero)
+                    e[k] = mc.e_states #List of energies
                 # CMS-PDFT 
                 elif method == 'CMS-PDFT':
-                    weights=[1/x.iroot]*x.iroot #Equal weights only
                     mc=mc.state_interaction(weights,'cms').run(mo)
                     if mc.converged==False:
                         mc.max_cycle_macro = 200
                         mc.run(mo_zero)
-                    e_cms = mc.e_states.tolist() #List of CMS energies
-                    e[k] = e_cms
+                    e[k] = mc.e_states.tolist() #List of  energies
                 else:
                     raise NotImplementedError
                 mo_field[j][k] = mc.mo_coeff #save MOs for the next stencil point k and axis j 
 
-            for m in range(x.iroot): # Over CMS states
+            for m in range(x.iroots): # Over states
                 shift=m*4 # shift to the next state by 4m columns (x,y,z,mu)
                 if formula == "2-point":
                     dip_num[i,1+j+shift] = (-1)*au2D*(-e[0][m]+e[1][m])/(2*f)
@@ -99,19 +105,19 @@ def numer_run(dist, x, mol, mo_zero, method, field, formula, ifunc, out, dip_cms
                     dip_num[i,1+j+shift] = (-1)*au2D*(e[0][m]-8*e[1][m]+8*e[2][m]-e[3][m])/(12*f)
         
         # Get absolute dipole moment    
-        for m in range(x.iroot):
+        for m in range(x.iroots):
             shift=m*4 # shift to the next state by 4m columns (x,y,z,mu)    
             dip_num[i,4+shift] = np.linalg.norm(dip_num[i,1+shift:4+shift])
     
     #Save covergence plots
-    num_conv_plot(x, field, dip_num, dist, method, dip_cms)
+    # num_conv_plot(x, field, dip_num, dist, method, dip_cms)
     return dip_num
 
 def num_conv_plot(x, field, dip_num, dist, method, dip_cms):
-    y1=[None]*x.iroot
+    y1=[None]*x.iroots
     x1=field.flatten()
     # x1=field
-    for m in range(x.iroot):
+    for m in range(x.iroots):
         plt.figure(m)
         shift=m*4
         y1[m]=dip_num[:,4+shift]
@@ -174,6 +180,7 @@ def get_dipole(x, field, formula, numer, analyt, mo, dist, ontop):
     mol = gto.M(atom=x.geom,charge=x.icharge,spin=x.ispin,output=out+'.log',
                 verbose=4, basis=x.ibasis, symmetry=x.isym)
     #HF step
+    weights=[1/x.iroots]*x.iroots
     mf = scf.RHF(mol).set(max_cycle = 1).run()
 
     # #CASSCF step
@@ -209,7 +216,6 @@ def get_dipole(x, field, formula, numer, analyt, mo, dist, ontop):
     else:
         print('Project orbs from the previous point')
         mo = mcscf.project_init_guess(cas, mo)
-    weights=[1/x.iroot]*x.iroot
     cas.state_average_(weights)
     e_casscf = cas.kernel(mo)[0]
     cas.analyze()
@@ -238,7 +244,7 @@ def get_dipole(x, field, formula, numer, analyt, mo, dist, ontop):
         molden.from_mo(mol, out+'_ss_cas.molden', mc.mo_coeff)
 
         #Initialize dipole moments to zero
-        dip_cms = np.zeros(4*x.iroot).tolist()
+        dip_cms = np.zeros(4*x.iroots).tolist()
         abs_pdft = 0
         abs_cas  = 0
 
@@ -257,24 +263,28 @@ def get_dipole(x, field, formula, numer, analyt, mo, dist, ontop):
                     abs_cas  = np.linalg.norm(dip_cas)
 
         #-------------------- CMS-PDFT Energy ---------------------------
-        # if cms_method == true:
-        weights=[1/x.iroot]*x.iroot #Equal weights only
-        mc = mc.state_interaction(weights,'cms').run(mo)
-        e_cms=mc.e_states.tolist() #List of CMS energies
+        for method in analyt:
+            if method == 'CMS-PDFT':
+                mc = mc.state_interaction(weights,'cms').run(mo)
+                e_states=mc.e_states.tolist() #List of  energies
+            elif method == 'SA-PDFT':
+                mc = mc.state_average_(weights).run(mo)
+                e_states=mc.e_states #List of energies
         mo_sa = mc.mo_coeff #SA-CASSCF MOs
-        molden.from_mo(mol, out+'_sa_cas.molden', mc.mo_coeff)
-        # print('\nEnergies: ',e_cms)
+        molden.from_mo(mol, out+'_sa.molden', mc.mo_coeff)
 
         # ---------------- Analytic CMS-PDFT Dipole----------------------
         if analyt == None:
             print("Analytic CMS-PDFT dipole is ignored")
-            dip_cms = np.zeros(4*x.iroot).tolist()
+            dip_cms = np.zeros(4*x.iroots).tolist()
         else:
             for method in analyt:
-                if method == 'CMS-PDFT' and len(ifunc) < 10 and ifunc!='ftPBE':
-                    for m in range(x.iroot):
+                if method == 'CMS-PDFT' or method == 'SA-PDFT' \
+                    and len(ifunc) < 10 and ifunc!='ftPBE':
+                    for m in range(x.iroots):
                         shift=m*4
                         dipoles = mc.dip_moment(state=m, unit='Debye')
+                        if method == 'SA-PDFT': dipoles=np.array(dipoles)
                         abs_cms = np.linalg.norm(dipoles)
                         dip_cms[shift:shift+3] = dipoles
                         dip_cms[shift+3] = abs_cms
@@ -288,13 +298,13 @@ def get_dipole(x, field, formula, numer, analyt, mo, dist, ontop):
             for method in numer:
                 if method == 'MC-PDFT': 
                     mo=mo_ss
-                elif method == 'CMS-PDFT':
+                elif method == 'CMS-PDFT' or method == 'SA-PDFT':
                     mo=mo_sa
                 dip_num = numer_run(dist, x, mol, mo, method, field, formula, ifunc, out, dip_cms)
             
         analytic[k] = [dist, abs_cas, abs_pdft] + dip_cms
         numeric [k] = dip_num
-        en_dist [k] = [dist, e_casscf, e_pdft] + e_cms
+        en_dist [k] = [dist, e_casscf, e_pdft] + e_states
     return numeric, analytic, en_dist, mo
 
 def pdtabulate(df, line1, line2): return tabulate(df, headers=line1, tablefmt='psql', floatfmt=line2)
@@ -316,10 +326,10 @@ def run(x, field, formula, numer, analyt, mo, dist, ontop, scan, dip_scan, en_sc
                 print("Numeric dipole at the bond length %s found with %s (%s)" \
                     %(cs(str(dist)),cs(method),cs(ot)))
                 header=['Field',]
-                for i in range(x.iroot): 
+                for i in range(x.iroots): 
                     header=header+['X', 'Y', 'Z',] 
                     header.append('ABS ({})'.format(str(i+1)))
-                sigfig = (".4f",)+(".4f",)*4*x.iroot
+                sigfig = (".4f",)+(".4f",)*4*x.iroots
                 numer_point = pdtabulate(numeric[k], header, sigfig)
                 print(numer_point)
                 action='w' if scan==False else 'a'
@@ -337,8 +347,9 @@ def run(x, field, formula, numer, analyt, mo, dist, ontop, scan, dip_scan, en_sc
 # Set the bond range
 bonds = np.array([1.2])
 # bonds = np.array([2.1])
-inc=0.1
-# bonds = np.arange(1.2,3.0+inc,inc) # for energy curves
+# inc=0.1
+inc=0.02
+bonds = np.arange(2.0,2.2+inc,inc) # for energy curves
 # bonds = np.arange(1.0,3.0+inc,inc) # for energy curves
 # bonds = np.array([1.6,2.0,2.1,2.2,2.3,2.4,2.5]) # for energy curves
 
@@ -376,27 +387,14 @@ numer  = None
 analyt = None
 # numer = ['SS-PDFT']
 # numer = ['CMS-PDFT']
+# numer = ['SA-PDFT']
 # analyt = ['MC-PDFT','CMS-PDFT']
-analyt = ['CMS-PDFT']
+# analyt = ['CMS-PDFT']
+analyt = ['SA-PDFT']
 
 
 # List of molecules and molecular parameters
 geom_OH_phenol= '''
-C       -2.586199811     -1.068328539     -2.343227944
-C       -1.383719126     -0.571709401     -1.839139664
-C       -3.598933171     -1.486733966     -1.476306928
-H       -0.580901222     -0.240090937     -2.507686505
-H       -4.543398025     -1.876891664     -1.874465443
-C       -1.192810178     -0.493086491     -0.452249284
-C       -3.398663509     -1.403899151     -0.097309120
-H       -4.185490834     -1.729852747      0.594389093
-C       -2.200418093     -0.909124041      0.423137737
-H       -2.045275617     -0.844707274      1.509797436
-H       -2.734632202     -1.130309287     -3.429202743
-O        0.000000000      0.000000000      0.000000000
-H        0.000000000      0.000000000      {}
-'''
-geom_OH_phenol3= '''
 C       -2.586199811     -1.068328539     -2.343227944
 C       -1.383719126     -0.571709401     -1.839139664
 C       -3.598933171     -1.486733966     -1.476306928
@@ -426,23 +424,6 @@ H        1.778943305     -2.120462603      0.000000000
 O       -2.345946581     -0.062451754      0.000000000
 H       -2.680887890      0.843761215      0.000000000
 '''
-
-geom_aniline_opt= '''
-C       -0.012835984     -1.211480650     -0.228846323
-C       -0.019218178      0.000003866     -0.942833702
-C       -0.001519109     -1.203121324      1.165890717
-H        0.001846004     -2.157713649      1.707970738
-C       -0.012809922      1.211455796     -0.228777974
-C        0.004595851      0.000001824      1.872897342
-H       -0.013359323      2.163317276     -0.777336998
-H        0.013471583     -0.000251731      2.969670976
-C       -0.001491958      1.203185445      1.165944787
-H        0.001890996      2.157878901      1.707850139
-H       -0.013396493     -2.163468342     -0.777195895
-N        0.130941179      0.000046277     -2.326425469
-H       -0.254397560     -0.853944932     -2.806264135
-H       -0.254331503      0.854091244     -2.806202683
-'''
 geom_ch5 = '''
 C         0.000000000     0.000000000     0.000000000
 F         0.051646177     1.278939741    -0.461155429
@@ -466,47 +447,45 @@ O        0.000000000      0.000000000     {}
 '''
 # GS geom_h2co equilibrium CMS-PDFT (tPBE) (6e,6o) / julccpvdz
 # O        0.000000000      0.000000000      1.214815430 
+
 class Molecule:
-    def __init__(self, iname, geom, icharge, isym, irep, ispin, ibasis, iroot,
-                 nel, norb, init, cas_list):
+    def __init__(self, iname, geom, nel, norb, cas_list, init=1.0, iroots=1, istate=0, 
+                icharge=0, isym='C1', irep='A', ispin=0, ibasis='julccpvdz'):
         self.iname    = iname
         self.geom     = geom
+        self.nel      = nel
+        self.norb     = norb
+        self.cas_list = cas_list
+        self.init     = init
+        self.iroots   = iroots
+        self.istate   = istate
         self.icharge  = icharge
         self.isym     = isym
         self.irep     = irep
         self.ispin    = ispin
         self.ibasis   = ibasis
-        self.iroot    = iroot
-        self.nel      = nel
-        self.norb     = norb
-        self.init     = init #distance at which initial guess is calculated
-        self.cas_list = cas_list
-
-
 
 # See class Molecule for the list of variables.
-crh_7e7o = Molecule('crh_7e7o', geom_crh, 0, 'Coov', 'A1', 5, 'def2tzvpd', 1, 7,7,  1.60, [10,11,12,13,14,15, 19])
-ch5_2e2o = Molecule('ch5_2e2o', geom_ch5, 0, 'C1',   'A',  0, 'augccpvdz', 1, 2,2,  1.50, [29, 35])
-co_10e8o = Molecule('co_10e8o', geom_co,  0, 'C1',   'A',  0, 'augccpvdz', 3, 10,8, 1.20, [3,4,5,6,7, 8,9,10])
-h2co_6e6o= Molecule('h2co_6e6o',geom_h2co,0, 'C1',   'A',  0, 'julccpvdz', 2, 6,6,  1.20, [6,7,8,9,10,12])
-# phenol_8e7o = Molecule('phenol_8e7o',geom_phenol,0, 'C1',   'A',  0, 'julccpvdz', 2, 8,7, 0.0, [19,23,24,25,31,32,34])
-# phenol_8e7o = Molecule('phenol_8e7o',geom_phenol,0, 'C1',   'A',  0, 'julccpvdz', 3, 8,7, 0.0, [19,23,24,25,31,32,34])
-# phenol_8e7o_sto = Molecule('phenol_8e7o_sto',geom_phenol,0, 'C1',   'A',  0, 'sto-3g', 3, 8,7, 0.0, [19,23,24,25,26,27,28])
-# phenol_8e7o_sto = Molecule('phenol_8e7o_sto',geom_phenol,0, 'C1',   'A',  0, 'sto-3g', 2, 8,7, 0.0, [19,23,24,25,26,27,28])
-aniline_8e7o_opt = Molecule('aniline_8e7o',geom_aniline_opt,0, 'C1',   'A',  0, 'julccpvdz', 2, 8,7, 0.0, [20,23,24,25,31,33,34])
+crh_7e7o = Molecule('crh_7e7o', geom_crh,   7,7, [10,11,12,13,14,15, 19], init=1.60, ispin=5, ibasis='def2tzvpd')
+ch5_2e2o = Molecule('ch5_2e2o', geom_ch5,   2,2, [29, 35],                init=1.50, iroots=1, ibasis='augccpvdz')
+co_10e8o = Molecule('co_10e8o', geom_co,   10,8, [3,4,5,6,7, 8,9,10],     init=1.20, iroots=3, ibasis='augccpvdz',)
+h2co_6e6o        = Molecule('h2co_6e6o',    geom_h2co,        6,6, [6,7,8,9,10,12],         init=1.20, iroots=2)
+phenol_8e7o_sto  = Molecule('phenol_8e7o_sto',geom_phenol,    8,7, [19,23,24,25,26,27,28], iroots=2, ibasis='sto-3g')
+phenol_8e7o      = Molecule('phenol_8e7o',  geom_phenol,      8,7, [19,23,24,25,31,32,34], init=0.0, iroots=2)
+OH_phenol_10e9o  = Molecule('OH_phenol_10e9o', geom_OH_phenol,10,9,[19,20,23,24,25,26,31,33,34], init=1.3, iroots=2)
+OH_phenol3_10e9o =  copy.deepcopy(OH_phenol_10e9o)
+OH_phenol3_10e9o.iroots=3
 
-OH_phenol_10e9o= Molecule('OH_phenol_10e9o', geom_OH_phenol,0, 'C1', 'A',  0, 'julccpvdz', 2, 10,9,  1.3, [19,20,23,24,25,26,31,33,34])
-OH_phenol3_10e9o= Molecule('OH_phenol3_10e9o', geom_OH_phenol3,0, 'C1', 'A',  0, 'julccpvdz', 3, 10,9,  1.3, [19,20,23,24,25,26,31,33,34])
 #Select species for which the dipole moment curves will be constructed
 # species=[crh_7e7o]
 # species=[ch5_2e2o]
 # species=[co_10e8o]
 species=[h2co_6e6o]
 # species=[phenol_8e7o]
-# species=[phenol_8e7o_sto]
-species=[aniline_8e7o_opt]
-species=[OH_phenol_10e9o]
 species=[OH_phenol3_10e9o]
+species=[phenol_8e7o_sto]
+species=[phenol_8e7o]
+species=[OH_phenol_10e9o]
 
 
 # ---------------------- MAIN DRIVER OVER DISTANCES -------------------
@@ -531,16 +510,17 @@ for x in species:
         run(x, field, formula, numer, analyt, mo, dist, ontop, scan, dip_scan, en_scan)
         
         dip_head = ['Distance','CASSCF','MC-PDFT']
-        for j in range(x.iroot): 
+        for j in range(x.iroots): 
             dip_head=dip_head+['X', 'Y', 'Z',] 
             dip_head.append('ABS ({})'.format(cs(str(j+1))))
-        dip_sig = (".2f",)+(".4f",)*(2+4*x.iroot)
+        dip_sig = (".2f",)+(".4f",)*(2+4*x.iroots)
         
         en_head=['Distance', 'CASSCF', 'MC-PDFT']
-        for jj in range(x.iroot): 
-            line='CMS-PDFT ({})'.format(cs(str(jj+1)))
-            en_head.append(line)
-        en_sig = (".2f",)+(".8f",)*(2+x.iroot)
+        for method in analyt:
+            for jj in range(x.iroots): 
+                line='%s ({})'.format(cs(str(jj+1))) % method
+                en_head.append(line)
+            en_sig = (".2f",)+(".8f",)*(2+x.iroots)
 
         for k, ifunc in enumerate(ontop):
             out = x.iname+'_'+ifunc+'.txt'
