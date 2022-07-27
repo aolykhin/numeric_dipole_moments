@@ -32,7 +32,7 @@ class Molecule:
 
 # ------------------ NUMERICAL DIPOLE MOMENTS ----------------------------
 def numer_run(dist, x, mol, mo_zero, method, field, formula, ifunc, out, dip_cms):
-
+    global thresh
     au2D = 2.5417464
     # Set reference point to be center of charge
     mol.output='num_'+ out
@@ -81,10 +81,10 @@ def numer_run(dist, x, mol, mo_zero, method, field, formula, ifunc, out, dip_cms
                     mc.max_cycle_macro = 200
                     mo=mo_zero 
                 else: # Try MOs from the previous filed/point
-                    mc.max_cycle_macro = 15
+                    mc.max_cycle_macro = 5
                     mo=mo_field[j][k]
                 # if the threshold is too tight the active space is unstable
-                mc.conv_tol = mc.conv_tol_sarot = 1e-9 
+                mc.conv_tol = mc.conv_tol_sarot = thresh 
                 # MC-PDFT 
                 if method == 'SS-PDFT':
                     e_mcpdft = mc.kernel(mo)[0]
@@ -151,6 +151,7 @@ def num_conv_plot(x, field, dip_num, dist, method, dip_cms):
     return
 
 def init_guess(y):
+    global thresh
     out = y.iname+'_cas'
     mol = gto.M(atom=y.geom, charge=y.icharge, spin=y.ispin,
                 output=y.iname+'_init.log', verbose=4, basis=y.ibasis, symmetry=y.isym)
@@ -166,6 +167,7 @@ def init_guess(y):
     cas.natorb = True
     cas.chkfile = fname
     cas.fcisolver.wfnsym = y.irep
+    cas.conv_tol = thresh 
     if os.path.isfile(fname) == True:
         print('Read orbs from the SAVED calculations')
         mo = lib.chkfile.load(fname, 'mcscf/mo_coeff')
@@ -180,7 +182,8 @@ def init_guess(y):
     return mo
 
 #-------------Compute energies and dipoles for the given geometry-----------
-def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
+def get_dipole(x, field, formula, numer, analyt, mo, dist, ontop):
+    global thresh
     out = x.iname+'_'+f"{dist:.2f}"
     mol = gto.M(atom=x.geom,charge=x.icharge,spin=x.ispin,output=out+'.log',
                 verbose=4, basis=x.ibasis, symmetry=x.isym)
@@ -194,16 +197,17 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
     cas.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
     cas.fcisolver.wfnsym = x.irep
     cas.chkfile = fname
-    if os.path.isfile(fname) == True:
-        print('Read orbs from the previous calculations')
-        mo = lib.chkfile.load(fname, 'mcscf/mo_coeff')
-    else:
-        print('Project orbs from the previous point')
-        mo = mcscf.project_init_guess(cas, mo)
+    cas.conv_tol = thresh 
+    # if os.path.isfile(fname) == True:
+    #     print('Read orbs from the previous calculations')
+    #     mo = lib.chkfile.load(fname, 'mcscf/mo_coeff')
+    # else:
+    #     print('Project orbs from the previous point')
+    #     mo = mcscf.project_init_guess(cas, mo)
     e_casscf = cas.kernel(mo)[0]
     cas.analyze()
     mo = cas.mo_coeff
-    # molden.from_mo(mol, out+'.molden', cas.mo_coeff)
+    molden.from_mo(mol, out+'.molden', cas.mo_coeff)
 
     #MC-PDFT step
     numeric  = [None]*len(ontop)
@@ -251,7 +255,7 @@ def get_dipole(x, field, formula, numer, analyt, dist, mo, ontop):
         mc = mc.state_interaction(weights,'cms').run(mo)
         e_cms=mc.e_states.tolist() #List of CMS energies
         mo_sa = mc.mo_coeff #SA-CASSCF MOs
-        # molden.from_mo(mol, out+'_sa_cas.molden', mc.mo_coeff)
+        molden.from_mo(mol, out+'_sa_cas.molden', mc.mo_coeff)
         # print('\nEnergies: ',e_cms)
 
         # ---------------- Analytic CMS-PDFT Dipole----------------------
@@ -290,7 +294,7 @@ def pdtabulate(df, line1, line2): return tabulate(df, headers=line1, tablefmt='p
 
 # Get dipoles & energies for a fixed distance
 def run(x, field, formula, numer, analyt, mo, dist, ontop, scan, dip_scan, en_scan):
-    numeric, analytic, en_dist, mo = get_dipole(x, field, formula, numer, analyt, dist, mo, ontop)
+    numeric, analytic, en_dist, mo = get_dipole(x, field, formula, numer, analyt, mo, dist, ontop)
 
     # Accumulate analytic dipole moments and energies
     for k, ifunc in enumerate(ontop):
@@ -313,8 +317,10 @@ def run(x, field, formula, numer, analyt, mo, dist, ontop, scan, dip_scan, en_sc
                 print(numer_point)
                 action='w' if scan==False else 'a'
                 with open(out, action) as f:
-                    f.write("Numeric dipole at the bond length %s found with %s (%s)\n" \
-                        %(str(dist),method,ot))
+                    f.write("Numeric dipole at %.3f ang found with %s (%s)\n" \
+                        %(dist,method,ot))
+                    # f.write("Analytic dipoles are %.4f\n" \
+                    #     %(dist,method,ot))
                     f.write(numer_point)
                     f.write('\n')
 
@@ -323,6 +329,7 @@ def run(x, field, formula, numer, analyt, mo, dist, ontop, scan, dip_scan, en_sc
 #--------------------- Set Up Parameters for Dipole Moment Curves--------------------
 # Set the bond range
 bonds = np.array([1.2])
+# bonds = np.array([2.1])
 # bonds = np.array([1.2,1.3])
 # inc=0.05
 # inc=0.1
@@ -332,10 +339,11 @@ bonds = np.array([1.2])
 # field = np.linspace(1e-3, 1e-2, num=1)
 field = np.linspace(1e-3, 1e-2, num=2)
 field = np.linspace(1e-3, 1e-2, num=3)
-# field = np.linspace(1e-3, 1e-2, num=19)
-field = np.array([0.0070])
+field = np.linspace(1e-3, 1e-2, num=19)
+# field = np.array([0.0070])
 # inc= 1e-3
 # field = np.arange(inc, 1e-2, inc)
+thresh = 5e-9
 
 # Set name for tPBE0 (HMC-PDFT functional)
 hybrid = 't'+ mcpdft.hyb('PBE', 0.25, 'average')
@@ -350,16 +358,16 @@ formula= "2-point"
 # formula = "4-point"
 
 # #!!!!!!!!!!!!!
-field = np.linspace(1e-3, 1e-2, num=19)
-inc=0.1
-bonds = np.arange(1.2,3.0+inc,inc) # for energy curves
+# field = np.linspace(1e-3, 1e-2, num=19)
+# inc=0.1
+# bonds = np.arange(1.2,3.0+inc,inc) # for energy curves
 
 
 # Set how dipole moments should be computed
 numer  = None
 analyt = None
 # numer = ['SS-PDFT']
-numer = ['CMS-PDFT']
+# numer = ['CMS-PDFT']
 analyt = ['MC-PDFT','CMS-PDFT']
 # analyt = ['CMS-PDFT']
 
@@ -381,24 +389,25 @@ C         0.000000000     0.000000000     0.000000000
 O         0.000000000     0.000000000     {}
 '''
 geom_h2co= '''
-H       -0.000000000      0.950146000    -0.591726000
-H       -0.000000000     -0.950146000    -0.591726000
-C        0.000000000      0.000000000     0.000000000
+H       -0.000000000      0.950627350     -0.591483790
+H       -0.000000000     -0.950627350     -0.591483790
+C        0.000000000      0.000000000      0.000000000
 O        0.000000000      0.000000000     {}
 '''
-# O        0.000000000      0.000000000      1.215152000 #equilibrium
+# GS equilibrium CMS-PDFT (tPBE) (6e,6o) / julccpvdz
+# O        0.000000000      0.000000000      1.214815430 
 
 # See class Molecule for the list of variables.
 crh_7e7o = Molecule('crh_7e7o', geom_crh, 0, 'Coov', 'A1', 5, 'def2tzvpd', 1, 7,7,  1.60, [10,11,12,13,14,15, 19])
 ch5_2e2o = Molecule('ch5_2e2o', geom_ch5, 0, 'C1',   'A',  0, 'augccpvdz', 1, 2,2,  1.50, [29, 35])
 co_10e8o = Molecule('co_10e8o', geom_co,  0, 'C1',   'A',  0, 'augccpvdz', 3, 10,8, 1.20, [3,4,5,6,7, 8,9,10])
-h2co_8e8o= Molecule('h2co_8e8o',geom_h2co,0, 'C1',   'A',  0, 'julccpvdz', 2, 8,8,  1.20, [3,6,7,8,9,10,12,15])
+h2co_6e6o= Molecule('h2co_6e6o',geom_h2co,0, 'C1',   'A',  0, 'julccpvdz', 2, 6,6,  1.20, [6,7,8,9,10,12])
 
 #Select species for which the dipole moment curves will be constructed
 # species=[crh_7e7o]
 # species=[ch5_2e2o]
 # species=[co_10e8o]
-species=[h2co_8e8o]
+species=[h2co_6e6o]
 
 # ---------------------- MAIN DRIVER OVER DISTANCES -------------------
 dip_scan = [ [] for _ in range(len(ontop)) ]
