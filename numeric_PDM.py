@@ -198,12 +198,12 @@ def get_dipole(x, field, formula, numer, analyt, mo, dist, ontop):
     cas.fcisolver.wfnsym = x.irep
     cas.chkfile = fname
     cas.conv_tol = thresh 
-    # if os.path.isfile(fname) == True:
-    #     print('Read orbs from the previous calculations')
-    #     mo = lib.chkfile.load(fname, 'mcscf/mo_coeff')
-    # else:
-    #     print('Project orbs from the previous point')
-    #     mo = mcscf.project_init_guess(cas, mo)
+    if os.path.isfile(fname) == True:
+        print('Read orbs from the previous calculations')
+        mo = lib.chkfile.load(fname, 'mcscf/mo_coeff')
+    else:
+        print('Project orbs from the previous point')
+        mo = mcscf.project_init_guess(cas, mo)
     e_casscf = cas.kernel(mo)[0]
     cas.analyze()
     mo = cas.mo_coeff
@@ -330,16 +330,16 @@ def run(x, field, formula, numer, analyt, mo, dist, ontop, scan, dip_scan, en_sc
 # Set the bond range
 bonds = np.array([1.2])
 # bonds = np.array([2.1])
-# bonds = np.array([1.2,1.3])
-# inc=0.05
-# inc=0.1
+inc=0.1
 # bonds = np.arange(1.2,3.0+inc,inc) # for energy curves
+bonds = np.arange(1.0,3.0+inc,inc) # for energy curves
 
 # Set field range
 # field = np.linspace(1e-3, 1e-2, num=1)
 field = np.linspace(1e-3, 1e-2, num=2)
 field = np.linspace(1e-3, 1e-2, num=3)
 field = np.linspace(1e-3, 1e-2, num=19)
+field = np.linspace(1e-3, 1e-2, num=10)
 # field = np.array([0.0070])
 # inc= 1e-3
 # field = np.arange(inc, 1e-2, inc)
@@ -368,11 +368,57 @@ numer  = None
 analyt = None
 # numer = ['SS-PDFT']
 # numer = ['CMS-PDFT']
-analyt = ['MC-PDFT','CMS-PDFT']
+# analyt = ['MC-PDFT','CMS-PDFT']
 # analyt = ['CMS-PDFT']
 
 
 # List of molecules and molecular parameters
+geom_OH_phenol= '''
+C       -2.693619914     -0.998093126     -2.268049469
+C       -1.455621411     -0.539365527     -1.813448525
+C       -3.681787003     -1.364248266     -1.351976581
+H       -0.686824140     -0.254495614     -2.526155350
+H       -4.644953622     -1.721139740     -1.705656766
+C       -1.205789640     -0.446792936     -0.442772724
+C       -3.431955231     -1.271675676      0.018699220
+H       -4.200752502     -1.556545589      0.731406044
+C       -2.193956730     -0.812948078      0.473300168
+H       -1.999587204     -0.740926451      1.539688157
+H       -2.887989438     -1.070114752     -3.334437462
+O        0.000000000      0.000000000      0.000000000
+H        0.000000000      0.000000000      {}
+'''
+geom_phenol= '''
+C        1.214793846     -1.192084882      0.000000000
+C       -0.181182920     -1.223420370      0.000000000
+C        1.885645321      0.032533975      0.000000000
+H       -0.703107911     -2.176177034      0.000000000
+H        2.971719251      0.056913772      0.000000000
+C       -0.906309250     -0.030135294      0.000000000
+C        1.160518991      1.225819051      0.000000000
+H        1.682443982      2.178575715      0.000000000
+C       -0.235457775      1.194483563      0.000000000
+H       -0.799607233      2.122861284      0.000000000
+H        1.778943305     -2.120462603      0.000000000
+O       -2.345946581     -0.062451754      0.000000000
+H       -2.680887890      0.843761215      0.000000000
+'''
+geom_aniline_opt= '''
+C       -0.012835984     -1.211480650     -0.228846323
+C       -0.019218178      0.000003866     -0.942833702
+C       -0.001519109     -1.203121324      1.165890717
+H        0.001846004     -2.157713649      1.707970738
+C       -0.012809922      1.211455796     -0.228777974
+C        0.004595851      0.000001824      1.872897342
+H       -0.013359323      2.163317276     -0.777336998
+H        0.013471583     -0.000251731      2.969670976
+C       -0.001491958      1.203185445      1.165944787
+H        0.001890996      2.157878901      1.707850139
+H       -0.013396493     -2.163468342     -0.777195895
+N        0.130941179      0.000046277     -2.326425469
+H       -0.254397560     -0.853944932     -2.806264135
+H       -0.254331503      0.854091244     -2.806202683
+'''
 geom_ch5 = '''
 C         0.000000000     0.000000000     0.000000000
 F         0.051646177     1.278939741    -0.461155429
@@ -394,7 +440,7 @@ H       -0.000000000     -0.950627350     -0.591483790
 C        0.000000000      0.000000000      0.000000000
 O        0.000000000      0.000000000     {}
 '''
-# GS equilibrium CMS-PDFT (tPBE) (6e,6o) / julccpvdz
+# GS geom_h2co equilibrium CMS-PDFT (tPBE) (6e,6o) / julccpvdz
 # O        0.000000000      0.000000000      1.214815430 
 
 # See class Molecule for the list of variables.
@@ -402,12 +448,21 @@ crh_7e7o = Molecule('crh_7e7o', geom_crh, 0, 'Coov', 'A1', 5, 'def2tzvpd', 1, 7,
 ch5_2e2o = Molecule('ch5_2e2o', geom_ch5, 0, 'C1',   'A',  0, 'augccpvdz', 1, 2,2,  1.50, [29, 35])
 co_10e8o = Molecule('co_10e8o', geom_co,  0, 'C1',   'A',  0, 'augccpvdz', 3, 10,8, 1.20, [3,4,5,6,7, 8,9,10])
 h2co_6e6o= Molecule('h2co_6e6o',geom_h2co,0, 'C1',   'A',  0, 'julccpvdz', 2, 6,6,  1.20, [6,7,8,9,10,12])
-
+# phenol_8e7o = Molecule('phenol_8e7o',geom_phenol,0, 'C1',   'A',  0, 'julccpvdz', 2, 8,7, 0.0, [19,23,24,25,31,32,34])
+# phenol_8e7o = Molecule('phenol_8e7o',geom_phenol,0, 'C1',   'A',  0, 'julccpvdz', 3, 8,7, 0.0, [19,23,24,25,31,32,34])
+# phenol_8e7o_sto = Molecule('phenol_8e7o_sto',geom_phenol,0, 'C1',   'A',  0, 'sto-3g', 3, 8,7, 0.0, [19,23,24,25,26,27,28])
+# phenol_8e7o_sto = Molecule('phenol_8e7o_sto',geom_phenol,0, 'C1',   'A',  0, 'sto-3g', 2, 8,7, 0.0, [19,23,24,25,26,27,28])
+aniline_8e7o_opt = Molecule('aniline_8e7o',geom_aniline_opt,0, 'C1',   'A',  0, 'julccpvdz', 2, 8,7, 0.0, [20,23,24,25,31,33,34])
+OH_phenol_10e9o= Molecule('OH_phenol_10e9o', geom_OH_phenol,0, 'C1', 'A',  0, 'julccpvdz', 2, 10,9,  1.3, [19,20,23,24,25,26,31,33,34])
 #Select species for which the dipole moment curves will be constructed
 # species=[crh_7e7o]
 # species=[ch5_2e2o]
 # species=[co_10e8o]
 species=[h2co_6e6o]
+# species=[phenol_8e7o]
+# species=[phenol_8e7o_sto]
+species=[aniline_8e7o_opt]
+species=[OH_phenol_10e9o]
 
 # ---------------------- MAIN DRIVER OVER DISTANCES -------------------
 dip_scan = [ [] for _ in range(len(ontop)) ]
