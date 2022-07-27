@@ -18,6 +18,119 @@ import itertools
 from numpy import unravel_index
 from icecream import ic
 
+os.environ['OMP_NUM_THREADS'] = "4"
+os.environ['MKL_NUM_THREADS'] = "4"
+os.environ['OPENBLAS_NUM_THREADS'] = "4"
+
+# List of molecules and molecular parameters
+geom_phenol_opt= '''
+C       -1.182853111      1.200708431      0.00000000
+C        0.212397551      1.216431879      0.00000000
+C       -1.877648981     -0.011392736      0.00000000
+H        0.770332141      2.159905341      0.00000000
+H       -2.974311304     -0.021467798      0.00000000
+C        0.919152698      0.005414786      0.00000000
+C       -1.164162291     -1.211169261      0.00000000
+H       -1.697713380     -2.169828607      0.00000000
+C        0.232754869     -1.212093364      0.00000000
+H        0.793712181     -2.157907002      0.00000000
+H       -1.735970731      2.149003232      0.00000000
+O        2.284795534      0.064463230      0.00000000
+H        2.640406066     -0.838707361      0.00000000
+'''
+geom_OH_phenol= '''
+C       -2.586199811     -1.068328539     -2.343227944
+C       -1.383719126     -0.571709401     -1.839139664
+C       -3.598933171     -1.486733966     -1.476306928
+H       -0.580901222     -0.240090937     -2.507686505
+H       -4.543398025     -1.876891664     -1.874465443
+C       -1.192810178     -0.493086491     -0.452249284
+C       -3.398663509     -1.403899151     -0.097309120
+H       -4.185490834     -1.729852747      0.594389093
+C       -2.200418093     -0.909124041      0.423137737
+H       -2.045275617     -0.844707274      1.509797436
+H       -2.734632202     -1.130309287     -3.429202743
+O        0.000000000      0.000000000      0.000000000
+H        0.000000000      0.000000000      {}
+'''
+geom_phenol_12e11o= '''
+C       -2.622730874     -1.013542229     -2.331647466
+C       -1.406745441     -0.543467761     -1.836239389
+C       -3.642230632     -1.407856573     -1.459091122
+H       -0.600882859     -0.232144838     -2.511037202
+H       -4.597665462     -1.776495891     -1.851638458
+C       -1.204492019     -0.465471372     -0.448760082
+C       -3.431148118     -1.326314087     -0.081269194
+H       -4.220682665     -1.631881105      0.616909336
+C       -2.218870662     -0.857801984      0.431663464
+H       -2.057527810     -0.795466793      1.517843236
+H       -2.777706083     -1.073150292     -3.417047881
+O        0.000000000      0.000000000      0.000000000
+H        0.000000000      0.000000000      {}
+'''
+geom_phenol= '''
+C        1.214793846     -1.192084882      0.000000000
+C       -0.181182920     -1.223420370      0.000000000
+C        1.885645321      0.032533975      0.000000000
+H       -0.703107911     -2.176177034      0.000000000
+H        2.971719251      0.056913772      0.000000000
+C       -0.906309250     -0.030135294      0.000000000
+C        1.160518991      1.225819051      0.000000000
+H        1.682443982      2.178575715      0.000000000
+C       -0.235457775      1.194483563      0.000000000
+H       -0.799607233      2.122861284      0.000000000
+H        1.778943305     -2.120462603      0.000000000
+O       -2.345946581     -0.062451754      0.000000000
+H       -2.680887890      0.843761215      0.000000000
+'''
+geom_h2co= '''
+H       -0.000000000      0.950627350     -0.591483790
+H       -0.000000000     -0.950627350     -0.591483790
+C        0.000000000      0.000000000      0.000000000
+O        0.000000000      0.000000000     {}
+'''
+geom_furan= '''
+C        0.000000000     -0.965551055     -2.020010585
+C        0.000000000     -1.993824223     -1.018526668
+C        0.000000000     -1.352073201      0.181141565
+O        0.000000000      0.000000000      0.000000000
+C        0.000000000      0.216762264     -1.346821565
+H        0.000000000     -1.094564216     -3.092622941
+H        0.000000000     -3.062658055     -1.175803180
+H        0.000000000     -1.688293885      1.206105691
+H        0.000000000      1.250242874     -1.655874372
+'''
+geom_butadiene= '''
+C       -1.723496679     -0.622891260      0.000000000
+H       -2.263989282     -1.564248373      0.000000000
+H       -2.311546164      0.289288564      0.000000000
+C       -0.385732145     -0.608988883      0.000000000
+C        0.385732145      0.608988883      0.000000000
+H        0.153350318     -1.554122238      0.000000000
+H       -0.153350318      1.554122238      0.000000000
+C        1.723496679      0.622891260      0.000000000
+H        2.311546164     -0.289288564      0.000000000
+H        2.263989282      1.564248373      0.000000000
+'''
+
+class Molecule:
+    def __init__(self, iname, geom, nel, norb, cas_list, init=0, iroots=1, istate=0, 
+                icharge=0, isym='C1', irep='A', ispin=0, ibasis='julccpvdz', grid=9):
+        self.iname    = iname
+        self.geom     = geom
+        self.nel      = nel
+        self.norb     = norb
+        self.cas_list = cas_list
+        self.init     = init
+        self.iroots   = iroots
+        self.istate   = istate
+        self.icharge  = icharge
+        self.isym     = isym
+        self.irep     = irep
+        self.ispin    = ispin
+        self.ibasis   = ibasis
+        self.grid     = grid
+
 def cs(text): return fg('light_green')+str(text)+attr('reset')
 
 def pdtabulate(df, line1, line2): return tabulate(df, headers=line1, tablefmt='psql', floatfmt=line2)
@@ -125,12 +238,10 @@ def fix_order_of_states(x, mol, ci_buf, ci_zero, si_sa_ref, si_in_ref, ham_ref, 
 
             overlap[k,m]=abs(wrk-ham_ref).sum()
 
-    # b=[]
     num_smallest=x.iroots*2
     for i in range(num_smallest):
         ind = np.unravel_index(np.argmin(overlap, axis=None), overlap.shape)
         overlap[ind]=100
-        # b.append(ind)
         new_order = order[ind[0]]       
         signs_col = sign_list[ind[1]]       
         
@@ -177,8 +288,10 @@ def fix_order_of_states(x, mol, ci_buf, ci_zero, si_sa_ref, si_in_ref, ham_ref, 
     for i in range(x.iroots):
         same=abs(si_in_buf[:,i]-si_in_ref[:,i]).sum()
         oppo=abs(-si_in_buf[:,i]-si_in_ref[:,i]).sum()
+        print('cms vector=',i, same, oppo)
         if same>oppo:
             si_in_buf[:,i]=-si_in_buf[:,i]
+    print('AOL',si_in_buf)
 
     #Rotate Hamiltonian
     tmp=ham_buf.copy()
@@ -282,7 +395,8 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, ci0_zero, method, field, formula, 
                 #     ci=ci_field[j][k]
 
                 # if the threshold is too tight the active space is unstable
-                mc.conv_tol = mc.conv_tol_sarot = thresh 
+                # mc.conv_tol = mc.conv_tol_sarot = thresh 
+                # mc.conv_tol_sarot =thresh
                 weights=[1/x.iroots]*x.iroots #Equal weights only
                 if method == 'SS-PDFT':
                     raise NotImplementedError
@@ -291,53 +405,42 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, ci0_zero, method, field, formula, 
                 elif method == 'CMS-PDFT':
                     mc.ci=ci_zero
                     mc=mc.multi_state(weights,'cms')
-                    # mc.max_cyc=max_cyc
-                    # mc.conv_tol=thresh
-                    # mc.sing_tol=thresh
-                    # mc.nudge_tol=nudge_tol
+                    mc.conv_tol=thresh
+                    mc.sing_tol=thresh
                     mc.kernel(mo,ci0=ci0)
                     if not mc.converged:
                         print('Number of cycles increased')
                         mc.max_cycle_macro = 200
                         mc.kernel(mo_zero, ci0=ci0_zero)
                     mc.analyze()
-                    #Analyze NOONs
                     molden.from_mo(mol, out+coord+point+'_sa.molden', mc.mo_coeff)
-                    # mo_noon=mc.mo_coeff #ONLY TRUE FOR TDM!!!!!!!!!!!!!!!
-                    # for m in range(x.iroots):
-                    #     print('TEST NOONS CASCI ')
-                    #     mc_noon = mcscf.CASCI(mf_field, x.norb, x.nel).state_specific_(m)
-                    #     mc_noon.natorb=True
-                    #     mc_noon.fix_spin_(ss=x.ispin)
-                    #     emc = mc_noon.casci(mo_noon)[0]
-                    #     mc_noon.analyze(large_ci_tol=0.05)
-
+                
                     print('NEXT HAMILTONIAN')
                     e_cms   = mc.e_states.tolist() #List of CMS energies
-                    ci_buf = mc.ci
+                    # ci_buf = mc.ci
+                    ci_buf = mc.get_ci_adiabats(uci='MCSCF')
                     ham_buf = mc.get_heff_pdft()
                     si_in_buf  = mc.si_pdft
                     si_sa_buf  = mc.si_mcscf
 
-                    # In the presence of field, the sign and order of sa and intermediate states can change
-                    if k!=0: # Adjust states to k==0
-                        ham_ref   = ham[0,j,:,:].copy()
-                        si_in_ref = si_in[0,j,:,:].copy()
-                        si_sa_ref = si_sa[0,j,:,:].copy()
-                        ci_ref    = ci_sa[0][j]
-                        si_sa_buf, si_in_buf, ham_buf = fix_order_of_states(x, mol, ci_buf, ci_ref, \
-                        si_sa_ref, si_in_ref, ham_ref, si_sa_buf, si_in_buf, ham_buf)
+                    # # In the presence of field, the sign and order of sa and intermediate states can change
+                    # if k!=0: # Adjust states to k==0
+                    #     ham_ref   = ham[0,j,:,:].copy()
+                    #     si_in_ref = si_in[0,j,:,:].copy()
+                    #     si_sa_ref = si_sa[0,j,:,:].copy()
+                    #     ci_ref    = ci_sa[0][j]
+                    #     si_sa_buf, si_in_buf, ham_buf = fix_order_of_states(x, mol, ci_buf, ci_ref, \
+                    #     si_sa_ref, si_in_ref, ham_ref, si_sa_buf, si_in_buf, ham_buf)
                         
                     # The following code aims to preserve the order and sings as in the zero-field case 
-                    # si_sa_buf, si_in_buf, ham_buf = fix_order_of_states(x, mol, ci_buf, ci_zero, \
-                    #     si_sa_zero, si_in_zero, ham_zero, si_sa_buf, si_in_buf, ham_buf)
-                    # si_in_buf = fix_signs_of_final_states(x, si_in_zero, si_in_buf)
-                    
+                    si_sa_buf, si_in_buf, ham_buf = fix_order_of_states(x, mol, ci_buf, ci_zero, \
+                        si_sa_zero, si_in_zero, ham_zero, si_sa_buf, si_in_buf, ham_buf)
+                    si_in_buf = fix_signs_of_final_states(x, si_in_zero, si_in_buf)
+
                     ham  [k,j,:,:] = ham_buf.copy()
                     si_in[k,j,:,:] = si_in_buf.copy()
                     si_sa[k,j,:,:] = si_sa_buf.copy()
                     ci_sa[k][j] = ci_buf
-
                     # e[k] = mc.e_states.tolist() #List of  energies
                 else:
                     raise NotImplementedError
@@ -384,11 +487,10 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, ci0_zero, method, field, formula, 
                     tot_der[i,1+j+shift]=(-1)*nist.AU2DEBYE*tot_der[i,1+j+shift]
                 id_tdm+=1
 
-        # Get permamment/transition dipole moment
-
         print('der\n',ham_der) 
         print('si_der\n',si_der) 
            
+        # Get permamment/transition dipole moment
         for mn in range(ntdm):
             shift=mn*4 # shift to the next state by 4m columns (x,y,z,mu)    
             dip_num[i,4+shift] = np.linalg.norm(dip_num[i,1+shift:4+shift])
@@ -402,15 +504,11 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, ci0_zero, method, field, formula, 
     print('ham_zero\n',ham_zero) 
     print('H_PQ\n',ham)
 
-
     np.set_printoptions(precision=4)
     print('1-0 TDM componenets')
     print('dip_num',dip_num[0,1:5])
     print('rem_der',rem_der[0,1:5])
     print('tot_der',tot_der[0,1:5])
-    # ic(dip_num)
-    # ic(rem_der)
-    # ic(tot_der)
   
     #Save covergence plots
     # num_conv_plot(x, field, dip_num, dist, method, dip_cms)
@@ -474,7 +572,7 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
     mass_center = np.einsum('i,ij->j', mass, coords)/mass.sum()
     # mol.set_common_orig_(mass_center)
     
-    #HF step
+    #HF stepds
     mf = scf.RHF(mol).set(max_cycle = 1).run()
 
     #SS/SA-CASSCF step
@@ -557,7 +655,7 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, dmcF
             mc.max_cyc=max_cyc
             mc.conv_tol=thresh
             mc.sing_tol=thresh
-            mc.nudge_tol=nudge_tol
+            # mc.nudge_tol=nudge_tol
             mc.kernel(mo,ci)
             e_states=mc.e_states.tolist() 
             # mo_sa = mc.mo_coeff #SA-CASSCF MOs
@@ -694,13 +792,14 @@ field = np.linspace(1e-3, 1e-2, num=2)
 field = np.linspace(1e-3, 1e-2, num=10)
 # field = np.linspace(5e-3, 4e-3, num=2)
 field = np.array([0.001])
+# field = np.array([0.0009,0.001,0.002])
 # inc= 1e-3
 # field = np.arange(inc, 1e-2, inc)
 thresh = 5e-9
 thresh = 1e-8
 max_cyc = 100
-nudge_tol = 1e-4
-nudge_tol = 1e-3
+# nudge_tol = 1e-4
+# nudge_tol = 1e-3
 
 
 # Set name for tPBE0 (HMC-PDFT functional)
@@ -718,7 +817,7 @@ formula= "2-point"
 # Set how dipole moments should be computed
 numer  = []
 analyt = []
-numer = ['CMS-PDFT']
+# numer = ['CMS-PDFT']
 # numer = ['SA-PDFT']
 analyt = ['CMS-PDFT']
 # analyt = ['CMS-PDFT','SA-CASSCF']
@@ -727,121 +826,14 @@ analyt = ['CMS-PDFT']
 dmcFLAG=False 
 dmcFLAG=True
 
-
-# List of molecules and molecular parameters
-geom_phenol_opt= '''
-C       -1.182853111      1.200708431      0.00000000
-C        0.212397551      1.216431879      0.00000000
-C       -1.877648981     -0.011392736      0.00000000
-H        0.770332141      2.159905341      0.00000000
-H       -2.974311304     -0.021467798      0.00000000
-C        0.919152698      0.005414786      0.00000000
-C       -1.164162291     -1.211169261      0.00000000
-H       -1.697713380     -2.169828607      0.00000000
-C        0.232754869     -1.212093364      0.00000000
-H        0.793712181     -2.157907002      0.00000000
-H       -1.735970731      2.149003232      0.00000000
-O        2.284795534      0.064463230      0.00000000
-H        2.640406066     -0.838707361      0.00000000
-'''
-geom_OH_phenol= '''
-C       -2.586199811     -1.068328539     -2.343227944
-C       -1.383719126     -0.571709401     -1.839139664
-C       -3.598933171     -1.486733966     -1.476306928
-H       -0.580901222     -0.240090937     -2.507686505
-H       -4.543398025     -1.876891664     -1.874465443
-C       -1.192810178     -0.493086491     -0.452249284
-C       -3.398663509     -1.403899151     -0.097309120
-H       -4.185490834     -1.729852747      0.594389093
-C       -2.200418093     -0.909124041      0.423137737
-H       -2.045275617     -0.844707274      1.509797436
-H       -2.734632202     -1.130309287     -3.429202743
-O        0.000000000      0.000000000      0.000000000
-H        0.000000000      0.000000000      {}
-'''
-geom_phenol_12e11o= '''
-C       -2.622730874     -1.013542229     -2.331647466
-C       -1.406745441     -0.543467761     -1.836239389
-C       -3.642230632     -1.407856573     -1.459091122
-H       -0.600882859     -0.232144838     -2.511037202
-H       -4.597665462     -1.776495891     -1.851638458
-C       -1.204492019     -0.465471372     -0.448760082
-C       -3.431148118     -1.326314087     -0.081269194
-H       -4.220682665     -1.631881105      0.616909336
-C       -2.218870662     -0.857801984      0.431663464
-H       -2.057527810     -0.795466793      1.517843236
-H       -2.777706083     -1.073150292     -3.417047881
-O        0.000000000      0.000000000      0.000000000
-H        0.000000000      0.000000000      {}
-'''
-geom_phenol= '''
-C        1.214793846     -1.192084882      0.000000000
-C       -0.181182920     -1.223420370      0.000000000
-C        1.885645321      0.032533975      0.000000000
-H       -0.703107911     -2.176177034      0.000000000
-H        2.971719251      0.056913772      0.000000000
-C       -0.906309250     -0.030135294      0.000000000
-C        1.160518991      1.225819051      0.000000000
-H        1.682443982      2.178575715      0.000000000
-C       -0.235457775      1.194483563      0.000000000
-H       -0.799607233      2.122861284      0.000000000
-H        1.778943305     -2.120462603      0.000000000
-O       -2.345946581     -0.062451754      0.000000000
-H       -2.680887890      0.843761215      0.000000000
-'''
-geom_h2co= '''
-H       -0.000000000      0.950627350     -0.591483790
-H       -0.000000000     -0.950627350     -0.591483790
-C        0.000000000      0.000000000      0.000000000
-O        0.000000000      0.000000000     {}
-'''
-geom_furan= '''
-C        0.000000000     -0.965551055     -2.020010585
-C        0.000000000     -1.993824223     -1.018526668
-C        0.000000000     -1.352073201      0.181141565
-O        0.000000000      0.000000000      0.000000000
-C        0.000000000      0.216762264     -1.346821565
-H        0.000000000     -1.094564216     -3.092622941
-H        0.000000000     -3.062658055     -1.175803180
-H        0.000000000     -1.688293885      1.206105691
-H        0.000000000      1.250242874     -1.655874372
-'''
-geom_butadiene= '''
-C       -1.723496679     -0.622891260      0.000000000
-H       -2.263989282     -1.564248373      0.000000000
-H       -2.311546164      0.289288564      0.000000000
-C       -0.385732145     -0.608988883      0.000000000
-C        0.385732145      0.608988883      0.000000000
-H        0.153350318     -1.554122238      0.000000000
-H       -0.153350318      1.554122238      0.000000000
-C        1.723496679      0.622891260      0.000000000
-H        2.311546164     -0.289288564      0.000000000
-H        2.263989282      1.564248373      0.000000000
-'''
-
-class Molecule:
-    def __init__(self, iname, geom, nel, norb, cas_list, init=0, iroots=1, istate=0, 
-                icharge=0, isym='C1', irep='A', ispin=0, ibasis='julccpvdz', grid=9):
-        self.iname    = iname
-        self.geom     = geom
-        self.nel      = nel
-        self.norb     = norb
-        self.cas_list = cas_list
-        self.init     = init
-        self.iroots   = iroots
-        self.istate   = istate
-        self.icharge  = icharge
-        self.isym     = isym
-        self.irep     = irep
-        self.ispin    = ispin
-        self.ibasis   = ibasis
-        self.grid     = grid
-
 # See class Molecule for the list of variables.
 butadiene_4e4o   = Molecule('butadiene_4e4o',geom_butadiene,  4,4, [14,15,16,17],          ibasis='631g*', iroots=2)
 furan_6e5o       = Molecule('furan_6e5o',    geom_furan,      6,5, [12,17,18,19,20],       ibasis='631g*', iroots=3)
+furan_6e5o_2       = Molecule('furan_6e5o',    geom_furan,      6,5, [12,17,18,19,20],       ibasis='631g*', iroots=2)
 furan_6e5o_A1       = Molecule('furan_6e5o',    geom_furan,      6,5, [12,17,18,19,20],       ibasis='631g*', iroots=3,isym='C2v', irep='A1')
 furan_6e5o_aug   = Molecule('furan_6e5o_aug',geom_furan,      6,5, [12,17,18,23,29],       ibasis='aug-cc-pvdz', iroots=3)
+furan_6e5o_aug_A1   = Molecule('furan_6e5o_aug',geom_furan,      6,5, [12,17,18,23,29],       ibasis='aug-cc-pvdz', iroots=3,isym='C2v', irep='A1')
+furan_6e5o_aug_A1_2   = Molecule('furan_6e5o_aug',geom_furan,      6,5, [12,17,18,23,29],       ibasis='aug-cc-pvdz', iroots=2,isym='C2v', irep='A1')
 furan_6e5o_aug_2 = Molecule('furan_6e5o_aug',geom_furan,      6,5, [12,17,18,23,29],       ibasis='aug-cc-pvdz', iroots=2)
 h2co_6e6o        = Molecule('h2co_6e6o',     geom_h2co,       6,6, [6,7,8,9,10,12],        init=1.20, iroots=2)
 phenol_8e7o_sto  = Molecule('phenol_8e7o_sto',geom_phenol,    8,7, [19,23,24,25,26,27,28], iroots=2, ibasis='sto-3g')
@@ -874,6 +866,11 @@ species=[furan_6e5o_aug_2]
 species=[furan_6e5o]
 species=[furan_6e5o_aug]
 species=[furan_6e5o_A1]
+species=[furan_6e5o_aug_A1]
+species=[furan_6e5o_aug_A1_2]
+species=[furan_6e5o_2]
+
+#-0.0000 | -0.3265 | -0.3352 |    0.4679
 
 # ---------------------- MAIN DRIVER OVER DISTANCES -------------------
 dip_scan = [ [] for _ in range(len(ontop)) ]
