@@ -14,21 +14,7 @@ from colored import fg, attr
 
 def cs(text): return fg('light_green')+text+attr('reset')
 
-class Molecule:
-    def __init__(self, iname, geom, icharge, isym, irep, ispin, ibasis, iroot,
-                 nel, norb, init, cas_list):
-        self.iname    = iname
-        self.geom     = geom
-        self.icharge  = icharge
-        self.isym     = isym
-        self.irep     = irep
-        self.ispin    = ispin
-        self.ibasis   = ibasis
-        self.iroot    = iroot
-        self.nel      = nel
-        self.norb     = norb
-        self.init     = init #distance at which initial guess is calculated
-        self.cas_list = cas_list
+
 
 # ------------------ NUMERICAL DIPOLE MOMENTS ----------------------------
 def numer_run(dist, x, mol, mo_zero, method, field, formula, ifunc, out, dip_cms):
@@ -190,7 +176,26 @@ def get_dipole(x, field, formula, numer, analyt, mo, dist, ontop):
     #HF step
     mf = scf.RHF(mol).set(max_cycle = 1).run()
 
-    #CASSCF step
+    # #CASSCF step
+    # fname = 'orb_ss_cas_'+ out #file with orbitals
+    # cas = mcscf.CASSCF(mf, x.norb, x.nel)
+    # # cas.natorb = True
+    # cas.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
+    # cas.fcisolver.wfnsym = x.irep
+    # cas.chkfile = fname
+    # cas.conv_tol = thresh 
+    # if os.path.isfile(fname) == True:
+    #     print('Read orbs from the previous calculations')
+    #     mo = lib.chkfile.load(fname, 'mcscf/mo_coeff')
+    # else:
+    #     print('Project orbs from the previous point')
+    #     mo = mcscf.project_init_guess(cas, mo)
+    # e_casscf = cas.kernel(mo)[0]
+    # cas.analyze()
+    # mo = cas.mo_coeff
+    # molden.from_mo(mol, out+'.molden', cas.mo_coeff)
+
+    #SA-CASSCF step
     fname = 'orb_ss_cas_'+ out #file with orbitals
     cas = mcscf.CASSCF(mf, x.norb, x.nel)
     # cas.natorb = True
@@ -204,6 +209,8 @@ def get_dipole(x, field, formula, numer, analyt, mo, dist, ontop):
     else:
         print('Project orbs from the previous point')
         mo = mcscf.project_init_guess(cas, mo)
+    weights=[1/x.iroot]*x.iroot
+    cas.state_average_(weights)
     e_casscf = cas.kernel(mo)[0]
     cas.analyze()
     mo = cas.mo_coeff
@@ -332,7 +339,8 @@ bonds = np.array([1.2])
 # bonds = np.array([2.1])
 inc=0.1
 # bonds = np.arange(1.2,3.0+inc,inc) # for energy curves
-bonds = np.arange(1.0,3.0+inc,inc) # for energy curves
+# bonds = np.arange(1.0,3.0+inc,inc) # for energy curves
+# bonds = np.array([1.6,2.0,2.1,2.2,2.3,2.4,2.5]) # for energy curves
 
 # Set field range
 # field = np.linspace(1e-3, 1e-2, num=1)
@@ -369,22 +377,37 @@ analyt = None
 # numer = ['SS-PDFT']
 # numer = ['CMS-PDFT']
 # analyt = ['MC-PDFT','CMS-PDFT']
-# analyt = ['CMS-PDFT']
+analyt = ['CMS-PDFT']
 
 
 # List of molecules and molecular parameters
 geom_OH_phenol= '''
-C       -2.693619914     -0.998093126     -2.268049469
-C       -1.455621411     -0.539365527     -1.813448525
-C       -3.681787003     -1.364248266     -1.351976581
-H       -0.686824140     -0.254495614     -2.526155350
-H       -4.644953622     -1.721139740     -1.705656766
-C       -1.205789640     -0.446792936     -0.442772724
-C       -3.431955231     -1.271675676      0.018699220
-H       -4.200752502     -1.556545589      0.731406044
-C       -2.193956730     -0.812948078      0.473300168
-H       -1.999587204     -0.740926451      1.539688157
-H       -2.887989438     -1.070114752     -3.334437462
+C       -2.586199811     -1.068328539     -2.343227944
+C       -1.383719126     -0.571709401     -1.839139664
+C       -3.598933171     -1.486733966     -1.476306928
+H       -0.580901222     -0.240090937     -2.507686505
+H       -4.543398025     -1.876891664     -1.874465443
+C       -1.192810178     -0.493086491     -0.452249284
+C       -3.398663509     -1.403899151     -0.097309120
+H       -4.185490834     -1.729852747      0.594389093
+C       -2.200418093     -0.909124041      0.423137737
+H       -2.045275617     -0.844707274      1.509797436
+H       -2.734632202     -1.130309287     -3.429202743
+O        0.000000000      0.000000000      0.000000000
+H        0.000000000      0.000000000      {}
+'''
+geom_OH_phenol3= '''
+C       -2.586199811     -1.068328539     -2.343227944
+C       -1.383719126     -0.571709401     -1.839139664
+C       -3.598933171     -1.486733966     -1.476306928
+H       -0.580901222     -0.240090937     -2.507686505
+H       -4.543398025     -1.876891664     -1.874465443
+C       -1.192810178     -0.493086491     -0.452249284
+C       -3.398663509     -1.403899151     -0.097309120
+H       -4.185490834     -1.729852747      0.594389093
+C       -2.200418093     -0.909124041      0.423137737
+H       -2.045275617     -0.844707274      1.509797436
+H       -2.734632202     -1.130309287     -3.429202743
 O        0.000000000      0.000000000      0.000000000
 H        0.000000000      0.000000000      {}
 '''
@@ -403,6 +426,7 @@ H        1.778943305     -2.120462603      0.000000000
 O       -2.345946581     -0.062451754      0.000000000
 H       -2.680887890      0.843761215      0.000000000
 '''
+
 geom_aniline_opt= '''
 C       -0.012835984     -1.211480650     -0.228846323
 C       -0.019218178      0.000003866     -0.942833702
@@ -442,6 +466,23 @@ O        0.000000000      0.000000000     {}
 '''
 # GS geom_h2co equilibrium CMS-PDFT (tPBE) (6e,6o) / julccpvdz
 # O        0.000000000      0.000000000      1.214815430 
+class Molecule:
+    def __init__(self, iname, geom, icharge, isym, irep, ispin, ibasis, iroot,
+                 nel, norb, init, cas_list):
+        self.iname    = iname
+        self.geom     = geom
+        self.icharge  = icharge
+        self.isym     = isym
+        self.irep     = irep
+        self.ispin    = ispin
+        self.ibasis   = ibasis
+        self.iroot    = iroot
+        self.nel      = nel
+        self.norb     = norb
+        self.init     = init #distance at which initial guess is calculated
+        self.cas_list = cas_list
+
+
 
 # See class Molecule for the list of variables.
 crh_7e7o = Molecule('crh_7e7o', geom_crh, 0, 'Coov', 'A1', 5, 'def2tzvpd', 1, 7,7,  1.60, [10,11,12,13,14,15, 19])
@@ -453,7 +494,9 @@ h2co_6e6o= Molecule('h2co_6e6o',geom_h2co,0, 'C1',   'A',  0, 'julccpvdz', 2, 6,
 # phenol_8e7o_sto = Molecule('phenol_8e7o_sto',geom_phenol,0, 'C1',   'A',  0, 'sto-3g', 3, 8,7, 0.0, [19,23,24,25,26,27,28])
 # phenol_8e7o_sto = Molecule('phenol_8e7o_sto',geom_phenol,0, 'C1',   'A',  0, 'sto-3g', 2, 8,7, 0.0, [19,23,24,25,26,27,28])
 aniline_8e7o_opt = Molecule('aniline_8e7o',geom_aniline_opt,0, 'C1',   'A',  0, 'julccpvdz', 2, 8,7, 0.0, [20,23,24,25,31,33,34])
+
 OH_phenol_10e9o= Molecule('OH_phenol_10e9o', geom_OH_phenol,0, 'C1', 'A',  0, 'julccpvdz', 2, 10,9,  1.3, [19,20,23,24,25,26,31,33,34])
+OH_phenol3_10e9o= Molecule('OH_phenol3_10e9o', geom_OH_phenol3,0, 'C1', 'A',  0, 'julccpvdz', 3, 10,9,  1.3, [19,20,23,24,25,26,31,33,34])
 #Select species for which the dipole moment curves will be constructed
 # species=[crh_7e7o]
 # species=[ch5_2e2o]
@@ -463,6 +506,8 @@ species=[h2co_6e6o]
 # species=[phenol_8e7o_sto]
 species=[aniline_8e7o_opt]
 species=[OH_phenol_10e9o]
+species=[OH_phenol3_10e9o]
+
 
 # ---------------------- MAIN DRIVER OVER DISTANCES -------------------
 dip_scan = [ [] for _ in range(len(ontop)) ]
