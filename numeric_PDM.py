@@ -131,6 +131,10 @@ def pdtabulate(df, line1, line2): return tabulate(df, headers=line1, tablefmt='p
 
 # ------------------ NUMERICAL DIPOLE MOMENTS ----------------------------
 def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out, dip_cms):
+    '''
+    Returns numeric permanent dipole moment found by differentiation of
+    electronic energy with respect to electric field strength. 
+    '''
     # Set reference point to be center of charge
     mol.output='num_'+ out
     mol.build()
@@ -261,6 +265,10 @@ def num_conv_plot(x, field, dip_num, dist, method, dip_cms):
     return
 
 def init_guess(y, analyt, numer):
+    ''' 
+    Runs preliminary state-specific or state-averaged CASSCF 
+    at a given geometry and returns molecular orbitals and CI vectors
+    '''
     out = y.iname+'_cas'
     xyz = open('00.xyz').read() if y.geom == 'frames' else y.geom
     mol = gto.M(atom=xyz, charge=y.icharge, spin=y.ispin,
@@ -300,6 +308,11 @@ def init_guess(y, analyt, numer):
 
 #-------------Compute energies and dipoles for the given geometry-----------
 def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, dmcFLAG=True):
+    '''
+    Evaluates energies and dipole moments along the bond contraction coordinate
+    Ruturns analytical and numerical dipoles for a given geometry for each functional used 
+    Also returns the MOs and CI vectors for a given geometry 
+    '''
     out = x.iname+'_'+f"{dist:.2f}"
     xyz = open(str(dist).zfill(2)+'.xyz').read() if x.geom == 'frames' else x.geom
     mol = gto.M(atom=xyz,charge=x.icharge,spin=x.ispin,output=out+'.log',
@@ -472,7 +485,9 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, dmcFLAG=Tr
 # Get dipoles & energies for a fixed distance
 def run(x, field, formula, numer, analyt, mo, ci, dist, ontop, scan, dip_scan, en_scan, dmcFLAG=True):
     numeric, analytic, en_dist, mo, ci = get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, dmcFLAG=dmcFLAG)
-
+    '''
+    Get dipoles & energies for a fixed distance
+    '''
     # Accumulate analytic dipole moments and energies
     for k, ifunc in enumerate(ontop):
         out = 'dmc_'+x.iname+'_'+ifunc+'.txt'
