@@ -59,7 +59,7 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
                 mf_field.max_cycle = 1  # next CASSCF starts from CAS orbitals not RHF
                 mf_field.kernel()
 
-                mc = mcpdft.CASSCF(mf_field, ifunc, x.norb, x.nel, grids_level=9)
+                mc = mcpdft.CASSCF(mf_field, ifunc, x.norb, x.nel, grids_level=x.grid)
                 mc.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
                 mc.fcisolver.wfnsym = x.irep
                 # mc.natorb = True
@@ -163,13 +163,15 @@ def init_guess(y, analyt):
     cas.chkfile = fname
     cas.fcisolver.wfnsym = y.irep
     cas.conv_tol = thresh 
-    if os.path.isfile(fname) == True:
-        print('Read orbs from the SAVED calculations')
-        mo = lib.chkfile.load(fname, 'mcscf/mo_coeff')
-        mo = mcscf.project_init_guess(cas, mo)
-    else:
-        print('Guess orbs from HF at bond length of %3.5f' % (y.init))
-        mo = mcscf.sort_mo(cas, mf.mo_coeff, y.cas_list)
+    # if os.path.isfile(fname) == True:
+    #     print('Read orbs from the SAVED calculations')
+    #     mo = lib.chkfile.load(fname, 'mcscf/mo_coeff')
+    #     mo = mcscf.project_init_guess(cas, mo)
+    # else:
+    #     print('Guess orbs from HF at bond length of %3.5f' % (y.init))
+    #     mo = mcscf.sort_mo(cas, mf.mo_coeff, y.cas_list)
+    print('Guess orbs from HF at bond length of %3.5f' % (y.init))
+    mo = mcscf.sort_mo(cas, mf.mo_coeff, y.cas_list)
     e_casscf = cas.kernel(mo)[0]
     mo = cas.mo_coeff
     saFLAG=False
@@ -204,12 +206,14 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, dmcFLAG=Tr
     cas.fcisolver.wfnsym = x.irep
     cas.chkfile = fname
     cas.conv_tol = thresh 
-    if os.path.isfile(fname) == True:
-        print('Read orbs from the previous calculations')
-        mo = lib.chkfile.load(fname, 'mcscf/mo_coeff')
-    else:
-        print('Project orbs from the previous point')
-        mo = mcscf.project_init_guess(cas, mo)
+    # if os.path.isfile(fname) == True:
+    #     print('Read orbs from the previous calculations')
+    #     mo = lib.chkfile.load(fname, 'mcscf/mo_coeff')
+    # else:
+    #     print('Project orbs from the previous point')
+    #     mo = mcscf.project_init_guess(cas, mo)
+    print('Project orbs from the previous point')
+    mo = mcscf.project_init_guess(cas, mo)
     for method in analyt:
         if method == 'CMS-PDFT' or method == 'SA-PDFT':
             cas.state_average_(weights)
@@ -251,7 +255,7 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, dmcFLAG=Tr
         else:
             for method in analyt:
                 #---------------- Make a PDFT object ---------------------------
-                mc = mcpdft.CASSCF(mf, ifunc, x.norb, x.nel, grids_level=9)
+                mc = mcpdft.CASSCF(mf, ifunc, x.norb, x.nel, grids_level=x.grid)
                 mc.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
                 mc.fcisolver.wfnsym = x.irep
                 # fname = 'orb_main_'+ out 
@@ -274,7 +278,8 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, dmcFLAG=Tr
                 
                 elif method == 'CMS-PDFT':
                     # mc = mc.state_interaction(weights,'cms').run(mo,ci)
-                    mc = mc.multi_state(weights,'cms').run(mo,ci)
+                    mc = mc.multi_state(weights,'cms').run(mo)
+                    # mc = mc.multi_state(weights,'cms').run(mo,ci)
                     e_states=mc.e_states.tolist() 
                     mo_sa = mc.mo_coeff #SA-CASSCF MOs
                     molden.from_mo(mol, out+'_sa.molden', mc.mo_coeff)
@@ -368,13 +373,14 @@ def run(x, field, formula, numer, analyt, mo, ci, dist, ontop, scan, dip_scan, e
 # Set the bond range
 bonds = np.array([1.2])
 bonds = np.array([1.0])
+# bonds = np.array([])
 # bonds = np.array([2.1])
 inc=0.1
 # inc=0.02
 # bonds = np.arange(2.0,2.2+inc,inc) # for energy curves
-bonds = np.arange(1.0,3.0+inc,inc) # for energy curves
-bonds = np.arange(3.0,1.0-inc,-inc) # for energy curves
 # bonds = np.array([1.6,2.0,2.1,2.2,2.3,2.4,2.5]) # for energy curves
+# bonds = np.arange(1.0,3.0+inc,inc) # for energy curves
+# bonds = np.arange(3.0,0.9-inc,-inc) # for energy curves
 
 # External XYZ frames
 # bonds = np.arange(0,31,1) 
@@ -386,19 +392,18 @@ field = np.linspace(1e-3, 1e-2, num=3)
 field = np.linspace(1e-3, 1e-2, num=19)
 field = np.linspace(1e-3, 1e-2, num=2)
 field = np.linspace(1e-3, 1e-2, num=10)
+# field = np.linspace(1e-4, 1e-2, num=20)
 # field = np.array([0.0070])
 # inc= 1e-3
 # field = np.arange(inc, 1e-2, inc)
-thresh = 5e-9
 thresh = 1e-8
+thresh = 5e-9
 
 # Set name for tPBE0 (HMC-PDFT functional)
 hybrid = 't'+ mcpdft.hyb('PBE', 0.25, 'average')
 # Set on-top functional
 ontop= ['tPBE']
-# ontop= ['tPBE','tOPBE']
-# ontop= ['tPBE', 'tBLYP', 'tOPBE']
-# ontop= [hybrid,'ftPBE']
+# ontop= ['tPBE','tOPBE', hybrid,'ftPBE']
 
 # Set differentiation technique
 formula= "2-point"
@@ -414,13 +419,13 @@ formula= "2-point"
 numer  = None
 analyt = None
 # numer = ['SS-PDFT']
-# numer = ['CMS-PDFT']
+numer = ['CMS-PDFT']
 # numer = ['SA-PDFT']
 # analyt = ['MC-PDFT','CMS-PDFT']
 analyt = ['CMS-PDFT']
 # analyt = ['SA-PDFT']
-dmcFLAG=True
 dmcFLAG=False 
+dmcFLAG=True
 
 
 # List of molecules and molecular parameters
@@ -454,6 +459,21 @@ H        1.778943305     -2.120462603      0.000000000
 O       -2.345946581     -0.062451754      0.000000000
 H       -2.680887890      0.843761215      0.000000000
 '''
+geom_phenol_12e11o= '''
+C       -2.622730874     -1.013542229     -2.331647466
+C       -1.406745441     -0.543467761     -1.836239389
+C       -3.642230632     -1.407856573     -1.459091122
+H       -0.600882859     -0.232144838     -2.511037202
+H       -4.597665462     -1.776495891     -1.851638458
+C       -1.204492019     -0.465471372     -0.448760082
+C       -3.431148118     -1.326314087     -0.081269194
+H       -4.220682665     -1.631881105      0.616909336
+C       -2.218870662     -0.857801984      0.431663464
+H       -2.057527810     -0.795466793      1.517843236
+H       -2.777706083     -1.073150292     -3.417047881
+O        0.000000000      0.000000000      0.000000000
+H        0.000000000      0.000000000      {}
+'''
 geom_ch5 = '''
 C         0.000000000     0.000000000     0.000000000
 F         0.051646177     1.278939741    -0.461155429
@@ -475,12 +495,48 @@ H       -0.000000000     -0.950627350     -0.591483790
 C        0.000000000      0.000000000      0.000000000
 O        0.000000000      0.000000000     {}
 '''
-# GS geom_h2co equilibrium CMS-PDFT (tPBE) (6e,6o) / julccpvdz
-# O        0.000000000      0.000000000      1.214815430 
+geom_furan= '''
+C        0.000000000     -0.965551055     -2.020010585
+C        0.000000000     -1.993824223     -1.018526668
+C        0.000000000     -1.352073201      0.181141565
+O        0.000000000      0.000000000      0.000000000
+C        0.000000000      0.216762264     -1.346821565
+H        0.000000000     -1.094564216     -3.092622941
+H        0.000000000     -3.062658055     -1.175803180
+H        0.000000000     -1.688293885      1.206105691
+H        0.000000000      1.250242874     -1.655874372
+'''
+geom_furan_shifted= '''
+C        0.331781886     -2.024738405     -2.267259682
+C        0.331781886     -3.053011573     -1.265775765
+C        0.331781886     -2.411260551     -0.066107532
+O        0.331781886     -1.059187350     -0.247249097
+C        0.331781886     -0.842425086     -1.594070662
+H        0.331781886     -2.153751566     -3.339872038
+H        0.331781886     -4.121845405     -1.423052277
+H        0.331781886     -2.747481235      0.958856594
+H        0.331781886      0.191055524     -1.903123469
+'''
+geom_furan_rotated= '''
+C        0.331781886     -2.024738405     -2.267259682
+C        0.499026345     -3.383644209     -1.836307192
+C        0.191974102     -3.399649555     -0.510972897
+O       -0.154080920     -2.150654420     -0.085330697
+C       -0.063190622     -1.326368167     -1.168476732
+H        0.485859613     -1.627783839     -3.260148794
+H        0.805962091     -4.228701792     -2.435314531
+H        0.169185620     -4.174289090      0.239367081
+H       -0.308755462     -0.290890412     -0.992182835
+'''
+geom_h2o='''
+O  0.00000000   0.08111156   0.00000000
+H  0.78620605   0.66349738   0.00000000
+H -0.78620605   0.66349738   0.00000000
+'''
 
 class Molecule:
     def __init__(self, iname, geom, nel, norb, cas_list, init=0, iroots=1, istate=0, 
-                icharge=0, isym='C1', irep='A', ispin=0, ibasis='julccpvdz'):
+                icharge=0, isym='C1', irep='A', ispin=0, ibasis='julccpvdz', grid=9):
         self.iname    = iname
         self.geom     = geom
         self.nel      = nel
@@ -494,6 +550,7 @@ class Molecule:
         self.irep     = irep
         self.ispin    = ispin
         self.ibasis   = ibasis
+        self.grid     = grid
 
 # See class Molecule for the list of variables.
 crh_7e7o = Molecule('crh_7e7o', geom_crh,   7,7, [10,11,12,13,14,15, 19], init=1.60, ispin=5, ibasis='def2tzvpd')
@@ -503,12 +560,17 @@ h2co_6e6o        = Molecule('h2co_6e6o',    geom_h2co,        6,6, [6,7,8,9,10,1
 phenol_8e7o_sto  = Molecule('phenol_8e7o_sto',geom_phenol,    8,7, [19,23,24,25,26,27,28], iroots=2, ibasis='sto-3g')
 phenol_8e7o      = Molecule('phenol_8e7o',  geom_phenol,      8,7, [19,23,24,25,31,32,34], init=0.0, iroots=2)
 OH_phenol_10e9o  = Molecule('OH_phenol_10e9o', geom_OH_phenol,10,9,[19,20,23,24,25,26,31,33,34], init=1.3, iroots=2)
+phenol_12e11o  = Molecule('phenol_12e11o', geom_phenol_12e11o,12,11,[19,20,21,23,24,25,26,31,33,34,58], init=1.3, iroots=3)
 OH_phenol3_10e9o =  copy.deepcopy(OH_phenol_10e9o)
 OH_phenol3_10e9o.iroots=3
-OH_phenol4_10e9o =  copy.deepcopy(OH_phenol_10e9o)
-OH_phenol4_10e9o.iroots=4
+# OH_phenol4_10e9o =  copy.deepcopy(OH_phenol_10e9o)
+# OH_phenol4_10e9o.iroots=4
 spiro_11e10o  = Molecule('spiro_11e10o','frames',11,10,[35,43,50,51,52,53, 55,76,87,100], iroots=2, icharge=1, ispin=1)
+h2o_4e4o      = Molecule('h2o_4e4o', geom_h2o,4,4,[4,5,6,7], iroots=3, grid=1, isym='c2v', irep='A1', ibasis='6-31g')
 
+furan_6e5o_2_shifted = Molecule('furan_6e5o_shift',    geom_furan_shifted,      6,5, [12,17,18,19,20],       ibasis='631g*', iroots=2)
+furan_6e5o_2_rotated = Molecule('furan_6e5o_rot',    geom_furan_rotated,      6,5, [12,17,18,19,20],       ibasis='631g*', iroots=2)
+furan_6e5o_2 = Molecule('furan_6e5o',    geom_furan,      6,5, [12,17,18,19,20],       ibasis='631g*', iroots=2)
 #Select species for which the dipole moment curves will be constructed
 # species=[crh_7e7o]
 # species=[ch5_2e2o]
@@ -519,8 +581,14 @@ species=[phenol_8e7o_sto]
 species=[OH_phenol_10e9o]
 species=[spiro_11e10o]
 species=[phenol_8e7o]
-species=[OH_phenol4_10e9o]
+# species=[OH_phenol4_10e9o]
 species=[OH_phenol3_10e9o]
+# species=[OH_phenol3_12e11o]
+species=[phenol_12e11o]
+species=[furan_6e5o_2_shifted]
+species=[furan_6e5o_2]
+species=[furan_6e5o_2_rotated]
+species=[h2o_4e4o]
 
 
 # ---------------------- MAIN DRIVER OVER DISTANCES -------------------
