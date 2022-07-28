@@ -195,6 +195,10 @@ def fix_sa_reference_order(x, mol, ci_buf, ci_ref, si_sa_buf, si_sa_zero):
     return si_sa_buf
 
 def fix_order_of_states(x, mol, ci_buf, ci_zero, si_sa_ref, si_in_ref, ham_ref, si_sa_buf, si_in_buf, ham_buf):
+    '''
+    Adjusts the order of SA and intermediate states to prevent
+    inconsistency in numerical differentiation of the CMS model-space Hamiltonian.
+    '''
     #Rotate sa reference states in expansion over sa reference states
     si_sa_buf=fix_sa_reference_order(x, mol, ci_buf, ci_zero, si_sa_buf, si_sa_ref)
 
@@ -304,7 +308,14 @@ def fix_signs_of_final_states(x, si_in_ref, si_in_buf):
 # ------------------ NUMERICAL DIPOLE MOMENTS ----------------------------
 def numer_run(dist, x, mol, mo_zero, ci_zero, ci0_zero, method, field, formula, ifunc, out, dip_cms, \
     si_sa_zero, si_in_zero, ham_zero, ntdm, unit='Debye', origin='Charge_center'):
+    '''
+    Returns numeric transition dipole moment found by 
+    differentiation of CMS model-space Hamiltonian 
+    with respect to electric field strength. 
 
+    Note: The degeneracy of two electronic states in the 
+    intermediate-state basis is currently not supported.  
+    '''
     # Set reference point to be center of charge
     mol.output='num_'+ out
     mol.build()
@@ -504,6 +515,10 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, ci0_zero, method, field, formula, 
     return dip_num
 
 def init_guess(y, analyt, numer):
+    ''' 
+    Runs preliminary state-specific or state-averaged CASSCF 
+    at a given geometry and returns molecular orbitals and CI vectors
+    '''
     out = y.iname+'_cas'
     xyz = open('00.xyz').read() if y.geom == 'frames' else y.geom
     mol = gto.M(atom=xyz, charge=y.icharge, spin=y.ispin,
@@ -539,6 +554,11 @@ def init_guess(y, analyt, numer):
 
 #-------------Compute energies and dipoles for the given geometry-----------
 def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, unit="Debye", dmcFLAG=True):
+    '''
+    Evaluates energies and dipole moments along the bond contraction coordinate
+    Ruturns analytical and numerical dipoles for a given geometry for each functional used 
+    Also returns the MOs and CI vectors for a given geometry 
+    '''
     out = x.iname+'_'+f"{dist:.2f}"
     xyz = open(str(dist).zfill(2)+'.xyz').read() if x.geom == 'frames' else x.geom
     mol = gto.M(atom=xyz,charge=x.icharge,spin=x.ispin,output=out+'.log',
@@ -589,8 +609,8 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, unit
         ci = cas.ci
         cas.analyze()
         molden.from_mo(mol, out+'_sa.molden', cas.mo_coeff)
-    mo=cas.mo_coeff #ONLY TRUE FOR TDM!!!!!!!!!!!!!!!
-    ci=cas.ci #ONLY TRUE FOR TDM!!!!!!!!!!!!!!!
+    mo=cas.mo_coeff 
+    ci=cas.ci 
     
     #MC-PDFT step
     numeric  = [None]*len(ontop)
@@ -655,9 +675,7 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, unit
 
         if 'SA-CASSCF' in (analyt + numer): 
             mc = mc.state_average_(weights).kernel(mo,ci)
-            # mc = mc.state_average_(weights).run(mo,ci)
             e_states = cas.e_states.tolist() #Note cas object not mc 
-            # mo_sa = cas.mo_coeff 
             if dmcFLAG:
                 print("Working on Analytic SA-CASSCF TDM")
                 from functools import reduce
@@ -711,9 +729,10 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, unit
         en_dist [k] = [dist, e_casscf, e_pdft] + e_states
     return numeric, analytic, en_dist, mo, ci
 
-
-# Get dipoles & energies for a fixed distance
 def run(x, field, formula, numer, analyt, mo, ci, dist, ontop, scan, dip_scan, en_scan, ntdm, unit='Debye', dmcFLAG=True):
+    '''
+    Get dipoles & energies for a fixed distance
+    '''
     numeric, analytic, en_dist, mo, ci = \
         get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, unit=unit, dmcFLAG=dmcFLAG)
 
