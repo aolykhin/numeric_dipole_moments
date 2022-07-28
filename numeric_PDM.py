@@ -123,23 +123,7 @@ O  0.00000000   0.08111156   0.00000000
 H  0.78620605   0.66349738   0.00000000
 H -0.78620605   0.66349738   0.00000000
 '''
-class Molecule:
-    def __init__(self, iname, geom, nel, norb, cas_list, init=0, iroots=1, istate=0, 
-                icharge=0, isym='C1', irep='A', ispin=0, ibasis='julccpvdz', grid=9):
-        self.iname    = iname
-        self.geom     = geom
-        self.nel      = nel
-        self.norb     = norb
-        self.cas_list = cas_list
-        self.init     = init
-        self.iroots   = iroots
-        self.istate   = istate
-        self.icharge  = icharge
-        self.isym     = isym
-        self.irep     = irep
-        self.ispin    = ispin
-        self.ibasis   = ibasis
-        self.grid     = grid
+
 
 def cs(text): return fg('light_green')+str(text)+attr('reset')
 
@@ -188,37 +172,39 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, formula, ifunc, out
                 mc = mcpdft.CASSCF(mf_field, ifunc, x.norb, x.nel, grids_level=x.grid)
                 mc.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
                 mc.fcisolver.wfnsym = x.irep
+                # mc.fix_spin_(ss=x.ispin)
                 # mc.natorb = True
                 print('j=%s and k=%s' %(j,k))
                 if i==0: #First field starts with zero-field MOs
-                    mc.max_cycle_macro = 200
+                    mc.max_cycle_macro = 600
                     mo=mo_zero 
                 else: # Try MOs from the previous filed/point
                     mc.max_cycle_macro = 5
                     mo=mo_field[j][k]
                 # if the threshold is too tight the active space is unstable
-                mc.conv_tol = thresh
-                mc.conv_tol_sarot = thresh 
+                if thresh: mc.conv_tol = thresh
                 weights=[1/x.iroots]*x.iroots #Equal weights only
                 # MC-PDFT 
                 if method == 'SS-PDFT':
                     e_mcpdft = mc.kernel(mo)[0]
                     if mc.converged==False: 
-                        mc.max_cycle_macro = 200
+                        mc.max_cycle_macro = 600
                         e_mcpdft = mc.kernel(mo_zero)[0]
                     e[k] = e_mcpdft
                 # SA-PDFT 
                 elif method == 'SA-PDFT':
-                    mc=mc.state_average_(weights).run(mo)
+                    mc=mc.state_average_(weights)
+                    mc.kernel(mo)
                     if mc.converged==False:
-                        mc.max_cycle_macro = 200
+                        mc.max_cycle_macro = 600
                         mc.run(mo_zero)
                     e[k] = mc.e_states #List of energies
                 # CMS-PDFT 
                 elif method == 'CMS-PDFT':
-                    mc=mc.multi_state(weights,'cms').run(mo)
+                    mc=mc.multi_state(weights,'cms')
+                    mc.kernel(mo)
                     if mc.converged==False:
-                        mc.max_cycle_macro = 200
+                        mc.max_cycle_macro = 600
                         mc.run(mo_zero)
                     e[k] = mc.e_states.tolist() #List of  energies
                 else:
@@ -281,20 +267,31 @@ def init_guess(y, analyt, numer):
 
     fname = 'orb_'+ out
     cas = mcscf.CASSCF(mf, y.norb, y.nel)
-    cas.natorb = True
+    # cas.natorb = True
     cas.chkfile = fname
     cas.fcisolver.wfnsym = y.irep
-    cas.conv_tol = thresh 
+    cas.fix_spin_(ss=y.ispin) 
+    if thresh: cas.conv_tol = thresh 
 
     print(f'Guess MOs from HF at {y.init:3.5f} ang')
     mo = mcscf.sort_mo(cas, mf.mo_coeff, y.cas_list)
-    cas.kernel(mo)[0]
-    mo = cas.mo_coeff
+    # cas.kernel(mo)
+    # mo = cas.mo_coeff
+
+    if 'MC-PDFT' in (analyt + numer):
+        # cas.fcisolver.wfnsym = x.irep
+        # cas.fix_spin_(ss=x.ispin) 
+        cas.kernel(mo)
+        mo_ss=cas.mo_coeff
+        # cas.analyze()
+        # molden.from_mo(mol, out+'_ss.molden', cas.mo_coeff)
 
     sa_required_methods=['CMS-PDFT','SA-PDFT','SA-CASSCF']
     if any(x in analyt+numer for x in sa_required_methods):
         cas.state_average_(weights)
-        cas.kernel(mo)[0]
+        cas.fcisolver.wfnsym = y.irep
+        cas.fix_spin_(ss=y.ispin) 
+        cas.kernel(mo)
     cas.analyze()
     mo = cas.mo_coeff
     ci = cas.ci
@@ -324,15 +321,16 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, dmcFLAG=Tr
     #SS/SA-CASSCF step
     fname = 'orb_'+ out #file with orbitals
     cas = mcscf.CASSCF(mf, x.norb, x.nel)
-    cas.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
-    cas.fcisolver.wfnsym = x.irep
+    # cas.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
     cas.chkfile = fname
-    cas.conv_tol = thresh 
+    if thresh: cas.conv_tol = thresh
     #! may be redundant if geometry is the same as ini 
-    print('Project orbs from the previous point')
-    mo = mcscf.project_init_guess(cas, mo)
+    # print('Project orbs from the previous point')
+    # mo = mcscf.project_init_guess(cas, mo)
 
-    if 'MC-PDFT' in (analyt + numer): 
+    if 'MC-PDFT' in (analyt + numer):
+        cas.fcisolver.wfnsym = x.irep
+        cas.fix_spin_(ss=x.ispin) 
         e_casscf = cas.kernel(mo,ci)[0]
         mo_ss=cas.mo_coeff
         cas.analyze()
@@ -341,6 +339,8 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, dmcFLAG=Tr
     sa_required_methods=['CMS-PDFT','SA-PDFT','SA-CASSCF']
     if any(x in analyt+numer for x in sa_required_methods):
         cas.state_average_(weights)
+        cas.fcisolver.wfnsym = x.irep
+        cas.fix_spin_(ss=x.ispin)
         e_casscf = cas.kernel(mo,ci)[0]
         mo_sa = cas.mo_coeff
         ci = cas.ci
@@ -353,6 +353,8 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, dmcFLAG=Tr
     numeric  = [None]*len(ontop)
     analytic = [None]*len(ontop)
     en_dist  = [None]*len(ontop) # energy array indexed by functional
+
+    if x.icharge !=0: origin = "Charge_center"
 
     for k, ifunc in enumerate(ontop): # Over on-top functionals
 
@@ -376,10 +378,13 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, dmcFLAG=Tr
                 mc = mcpdft.CASSCF(mf, ifunc, x.norb, x.nel, grids_level=x.grid)
                 mc.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
                 mc.fcisolver.wfnsym = x.irep
+                # mc.fix_spin_(ss=x.ispin)
                 mc.chkfile = fname
-                mc.max_cycle_macro = 300
+                mc.max_cycle_macro = 600
 
                 if method == 'MC-PDFT': 
+                    mc.fcisolver.wfnsym = x.irep
+                    mc.fix_spin_(ss=x.ispin)
                     e_pdft = mc.kernel(mo)[0]
                     mo_ss = mc.mo_coeff #SS-CASSCF MOs
                     molden.from_mo(mol, out+'_ss.molden', mc.mo_coeff)
@@ -395,6 +400,8 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, dmcFLAG=Tr
                 
                 elif method == 'CMS-PDFT':
                     mc = mc.multi_state(weights,'cms')
+                    # mc.fix_spin_(ss=x.ispin)
+                    if thresh: mc.conv_tol = thresh
                     mc.kernel(mo,ci)
                     e_states=mc.e_states.tolist() 
                     mo_sa = mc.mo_coeff #SA-CASSCF MOs
@@ -403,7 +410,7 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, dmcFLAG=Tr
                         print("Working on Analytic CMS-PDFT Dipole")
                         for m in range(x.iroots):
                             shift=m*4
-                            dipoles = mc.dip_moment(state=m, unit='Debye')
+                            dipoles = mc.dip_moment(state=m, unit='Debye', origin=origin)
                             abs_cms = np.linalg.norm(dipoles)
                             dip_cms[shift:shift+3] = dipoles
                             dip_cms[shift+3] = abs_cms
@@ -412,7 +419,10 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, dmcFLAG=Tr
                         dip_cms = np.zeros(4*x.iroots).tolist()
                 
                 elif method == 'SA-PDFT':
-                    mc = mc.state_average_(weights).run(mo,ci)
+                    mc = mc.state_average_(weights)
+                    mc.fcisolver.wfnsym = x.irep
+                    mc.fix_spin_(ss=x.ispin)
+                    mc.kernel(mo,ci)
                     e_states=mc.e_states 
                     mo_sa = mc.mo_coeff #SA-CASSCF MOs
                     molden.from_mo(mol, out+'_sa.molden', mc.mo_coeff)
@@ -421,7 +431,7 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, dmcFLAG=Tr
                         for m in range(x.iroots):
                             shift=m*4
                             dipoles = mc.dip_moment(state=m, unit='Debye')
-                            dipoles=np.array(dipoles)
+                            dipoles = np.array(dipoles)
                             abs_cms = np.linalg.norm(dipoles)
                             dip_cms[shift:shift+3] = dipoles
                             dip_cms[shift+3] = abs_cms
@@ -432,17 +442,20 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, dmcFLAG=Tr
        
         # ---------------- Numerical Dipoles ---------------------------
         #---------------------------------------------------------------
-        if numer == None:
-            print("Numerical dipole is ignored")
-            dip_num = np.zeros((len(field), 4))
-        else:
+        if numer:
             for method in numer:
                 if method == 'MC-PDFT': 
                     mo=mo_ss
+                    # raise NotImplementedError
                 elif method == 'CMS-PDFT' or method == 'SA-PDFT':
                     mo=mo_sa
+
                 dip_num = numer_run(dist, x, mol, mo, ci, method, field, formula, ifunc, out, dip_cms)
-            
+        else:
+            print("Numerical dipole is ignored")
+            dip_num = np.zeros((len(field), 4))
+        
+   
         analytic[k] = [dist, abs_cas, abs_pdft] + dip_cms
         numeric [k] = dip_num
         en_dist [k] = [dist, e_casscf, e_pdft] + e_states
@@ -466,7 +479,7 @@ def run(x, field, formula, numer, analyt, mo, ci, dist, ontop, scan, dip_scan, e
                 header=['Field',]
                 for i in range(x.iroots): 
                     header+=['X', 'Y', 'Z', f'ABS ({i+1})'] 
-                sigfig = (".4f",)+(".4f",)*4*x.iroots
+                sigfig = (".4f",)+(".5f",)*4*x.iroots
                 numer_point = pdtabulate(numeric[k], header, sigfig)
                 print(numer_point)
                 action='w' if scan==False else 'a'
@@ -477,6 +490,23 @@ def run(x, field, formula, numer, analyt, mo, ci, dist, ontop, scan, dip_scan, e
     return mo, ci
 
 
+class Molecule:
+    def __init__(self, iname, geom, nel, norb, cas_list, init=0, iroots=1, istate=0, 
+                icharge=0, isym='C1', irep='A', ispin=0, ibasis='julccpvdz', grid=9):
+        self.iname    = iname
+        self.geom     = geom
+        self.nel      = nel
+        self.norb     = norb
+        self.cas_list = cas_list
+        self.init     = init
+        self.iroots   = iroots
+        self.istate   = istate
+        self.icharge  = icharge
+        self.isym     = isym
+        self.irep     = irep
+        self.ispin    = ispin
+        self.ibasis   = ibasis
+        self.grid     = grid
 
 #--------------------- Set Up Parameters for Dipole Moment Curves--------------------
 # Set the bond range
@@ -500,22 +530,29 @@ field = np.linspace(1e-3, 1e-2, num=3)
 field = np.linspace(1e-3, 1e-2, num=19)
 field = np.linspace(1e-3, 1e-2, num=2)
 field = np.linspace(1e-3, 1e-2, num=10)
-field = np.linspace(1e-4, 1e-2, num=20)
-# field = np.array([0.0070])
+field = np.linspace(1e-5, 1e-2, num=30)
+field = np.linspace(2e-3, 1e-2, endpoint=True, num=81)
+# field = np.array([\
+# 0.00300,0.00325,0.00350,0.00375,0.00400,0.00425,0.00450,0.00475,
+# 0.00500,0.00525,0.00550,0.00575,0.00600,0.00625,0.00650,0.00675,
+# 0.00700,0.00725,0.00750,0.00800,0.00850,0.00900,0.00950,0.01000])
 # inc= 1e-3
 # field = np.arange(inc, 1e-2, inc)
-thresh = 1e-8
+thresh = None
+thresh = 1e-11
+conv_tol_grad= 1e-6
 # thresh = 5e-9
 
 # Set name for tPBE0 (HMC-PDFT functional)
 hybrid = 't'+ mcpdft.hyb('PBE', 0.25, 'average')
 # Set on-top functional
 ontop= ['tPBE']
+ontop= ['tBLYP']
 # ontop= ['tPBE','tOPBE', hybrid,'ftPBE']
 
 # Set differentiation technique
-formula= "2-point"
-# formula = "4-point"
+# formula= "2-point"
+formula = "4-point"
 
 # #!!!!!!!!!!!!!
 # field = np.linspace(1e-3, 1e-2, num=19)
@@ -524,8 +561,8 @@ formula= "2-point"
 
 
 # Set how dipole moments should be computed
-numer  = None
-analyt = None
+numer  = []
+analyt = []
 # numer = ['SS-PDFT']
 numer = ['CMS-PDFT']
 # numer = ['SA-PDFT']
@@ -534,10 +571,6 @@ analyt = ['CMS-PDFT']
 # analyt = ['SA-PDFT']
 dmcFLAG=False 
 dmcFLAG=True
-
-
-
-
 
 
 # See class Molecule for the list of variables.
@@ -557,6 +590,8 @@ spiro_11e10o  = Molecule('spiro_11e10o','frames',11,10,[35,43,50,51,52,53, 55,76
 
 # unit tests
 h2o_4e4o      = Molecule('h2o_4e4o', geom_h2o, 4,4, [4,5,8,9], iroots=3, grid=1, isym='c2v', irep='A1', ibasis='aug-cc-pVDZ')
+furancat_5e5o = Molecule('furancat_5e5o', geom_furan, 5,5, [12,17,18,19,20], iroots=3, grid=1, icharge = 1, ispin =1, ibasis='sto-3g')
+
 
 furan_6e5o_2_shifted = Molecule('furan_6e5o_shift', geom_furan_shifted, 6,5, [12,17,18,19,20], ibasis='631g*', iroots=2)
 furan_6e5o_2_rotated = Molecule('furan_6e5o_rot',   geom_furan_rotated, 6,5, [12,17,18,19,20], ibasis='631g*', iroots=2)
@@ -579,6 +614,7 @@ species=[furan_6e5o_2_shifted]
 species=[furan_6e5o_2]
 species=[furan_6e5o_2_rotated]
 species=[h2o_4e4o]
+species=[furancat_5e5o]
 
 
 # ---------------------- MAIN DRIVER OVER DISTANCES -------------------
@@ -606,7 +642,7 @@ for x in species:
         dip_head = ['Distance','CASSCF','MC-PDFT']
         for j in range(x.iroots): 
             dip_head+=['X', 'Y', 'Z', f'ABS ({cs(j+1)})']
-        dip_sig = (".2f",)+(".4f",)*(2+4*x.iroots)
+        dip_sig = (".2f",)+(".5f",)*(2+4*x.iroots)
         
         en_head=['Distance', 'CASSCF', 'MC-PDFT']
         for method in analyt:
