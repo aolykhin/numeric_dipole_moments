@@ -177,28 +177,24 @@ def cms_dip(x):
     eq_pdm = [eq_dip]
     tdm = []
     if x.istate==0:
-        for i in range(x.iroots):
-            if i!=0:
-                tmp = mc_eq.trans_moment(state=[0,i], unit='Debye')
-                tdm.append(tmp)
-        abs = np.linalg.norm(eq_dip)
-        molden.from_mo(mol_eq, out+'_opt.molden', mc_eq.mo_coeff)
-
-        with open('dipoles_cms', 'a') as f:
-            print(x.iname, f'PDM <0|mu|0> ABS (D) = {abs:7.2f} XYZ (D) = {eq_dip[0]:7.3f} {eq_dip[1]:7.3f} {eq_dip[2]:7.3f}', file=f)
-            for n in range(x.iroots):
-                if n!=0:#
-                    k = n-1 #
-                    print(x.iname, f'TDM <0|mu|{n}> ABS (D) = {abs:7.2f} XYZ (D) = {tdm[k][0]:7.3f} {tdm[k][1]:7.3f} {tdm[k][2]:7.3f}' , file=f)
+        tdm = [mc_eq.trans_moment(state=[0,i]) for i in range(x.iroots) if i!=0]
     else:
-        tmp = mc_eq.trans_moment(state=[0,x.istate], unit='Debye')
-        tdm.append(tmp)
-        abs = np.linalg.norm(eq_dip)
-        molden.from_mo(mol_eq, out+'_opt.molden', mc_eq.mo_coeff)
-        with open('dipoles_cms', 'a') as f:
-            print(x.iname, f'PDM <{x.istate}|mu|{x.istate}> ABS (D) = {abs:7.2f} XYZ (D) = {eq_dip[0]:7.3f} {eq_dip[1]:7.3f} {eq_dip[2]:7.3f}', file=f)
+        tdm = [mc_eq.trans_moment(state=[0,x.istate])]
+    abs = np.linalg.norm(eq_dip)
+    molden.from_mo(mol_eq, out+'_opt.molden', mc_eq.mo_coeff)
+
+    with open('dipoles_cms', 'a') as f:
+        print(x.iname, f'PDM <{x.istate}|mu|{x.istate}> ABS (D) = {abs:7.2f} \
+            XYZ (D) = {eq_dip[0]:7.3f} {eq_dip[1]:7.3f} {eq_dip[2]:7.3f}', file=f)
+        if x.istate==0:
+            for n in range(1,x.iroots):
+                k = n-1 #
+                print(x.iname, f'TDM <0|mu|{n}> ABS (D) = {abs:7.2f} \
+                    XYZ (D) = {tdm[k][0]:7.3f} {tdm[k][1]:7.3f} {tdm[k][2]:7.3f}' , file=f)
+        else:
             k = 0 #
-            print(x.iname, f'TDM <0|mu|{x.istate}> ABS (D) = {abs:7.2f} XYZ (D) = {tdm[k][0]:7.3f} {tdm[k][1]:7.3f} {tdm[k][2]:7.3f}' , file=f)
+            print(x.iname, f'TDM <{x.istate}|mu|0> ABS (D) = {abs:7.2f} \
+                XYZ (D) = {tdm[k][0]:7.3f} {tdm[k][1]:7.3f} {tdm[k][2]:7.3f}' , file=f)
 
     # pdm_abc, tdm_abc = transform_dip(x, mol, eq_pdm, tdm, 'cms')
 
@@ -231,21 +227,21 @@ def cms_dip(x):
                     print(x.iname, f'TDM <0|mu|{n}> ABS (D) = {abs:7.2f} XYZ (D) = {tdm[k][0]:7.3f} {tdm[k][1]:7.3f} {tdm[k][2]:7.3f} Oscil = {oscil:7.2f}' , file=f)
 
         pdm_abc, tdm_abc = transform_dip(x, mol, eq_pdm, tdm, 'casci')
-    else:    
-        # tdm=mc.trans_moment(state=[x.istate,0])
-        tdm=tdm_casci(mo_sa,mc_eq,mol_eq,state=[x.istate,0])
-        abs = np.linalg.norm(tdm)
-        oscil= (2/3)*(e_opt[x.istate]-e_opt[0])*(abs**2)
-        tdm*= nist.AU2DEBYE
-        abs*= nist.AU2DEBYE
-        with open('tdms_from_excited_states', 'a') as f:
-            print(x.iname, f'TDM <{x.istate}|mu|0> ABS = {abs:7.2f} Oscil = {oscil:7.2f} \
-                XYZ: {tdm[0]:7.3f} {tdm[1]:7.3f} {tdm[2]:7.3f}', file=f)
-            with open('tdms_from_excited_states_COM', 'a') as f:
-                tdm+=com
-                print(x.iname, f'<{x.istate}|mu|0> vec V {com[0]:7.3f} {com[1]:7.3f} {com[2]:7.3f} {tdm[0]:7.3f} {tdm[1]:7.3f} {tdm[2]:7.3f} S', file=f)
-            print(x.iname, 'TDM %s0 ABS = %.2f Oscillator = %.2f XYZ: %.4f %.4f %.4f' % \
-            (x.istate,abs,oscil, tdm[0],tdm[1],tdm[2]), file=f)
+    # else:    
+    #     # tdm=mc.trans_moment(state=[x.istate,0])
+    #     tdm=tdm_casci(mo_sa,mc_eq,mol_eq,state=[x.istate,0])
+    #     abs = np.linalg.norm(tdm)
+    #     oscil= (2/3)*(e_opt[x.istate]-e_opt[0])*(abs**2)
+    #     tdm*= nist.AU2DEBYE
+    #     abs*= nist.AU2DEBYE
+    #     with open('tdms_from_excited_states', 'a') as f:
+    #         print(x.iname, f'TDM <{x.istate}|mu|0> ABS = {abs:7.2f} Oscil = {oscil:7.2f} \
+    #             XYZ: {tdm[0]:7.3f} {tdm[1]:7.3f} {tdm[2]:7.3f}', file=f)
+    #         with open('tdms_from_excited_states_COM', 'a') as f:
+    #             tdm+=com
+    #             print(x.iname, f'<{x.istate}|mu|0> vec V {com[0]:7.3f} {com[1]:7.3f} {com[2]:7.3f} {tdm[0]:7.3f} {tdm[1]:7.3f} {tdm[2]:7.3f} S', file=f)
+    #         print(x.iname, 'TDM %s0 ABS = %.2f Oscillator = %.2f XYZ: %.4f %.4f %.4f' % \
+    #         (x.istate,abs,oscil, tdm[0],tdm[1],tdm[2]), file=f)
 
 
 
