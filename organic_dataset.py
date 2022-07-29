@@ -173,19 +173,19 @@ def cms_dip(x):
     # ------------------- CMS-PDFT PDM AND TDM ------------------
     mo_sa = mc_eq.mo_coeff 
     e_opt = mc_eq.e_states.tolist() #List of CMS energies
-    eq_dip= mc_eq.dip_moment(state=x.istate, unit='Debye')
-    eq_pdm = [eq_dip]
+    pdm= mc_eq.dip_moment(state=x.istate, unit='Debye')
+    eq_pdm = [pdm]
     tdm = []
     if x.istate==0:
         tdm = [mc_eq.trans_moment(state=[0,i]) for i in range(x.iroots) if i!=0]
     else:
         tdm = [mc_eq.trans_moment(state=[0,x.istate])]
-    abs = np.linalg.norm(eq_dip)
+    abs = np.linalg.norm(pdm)
     molden.from_mo(mol_eq, out+'_opt.molden', mc_eq.mo_coeff)
 
     with open('dipoles_cms', 'a') as f:
         print(x.iname, f'PDM <{x.istate}|mu|{x.istate}> ABS (D) = {abs:7.2f} \
-            XYZ (D) = {eq_dip[0]:7.3f} {eq_dip[1]:7.3f} {eq_dip[2]:7.3f}', file=f)
+            XYZ (D) = {pdm[0]:7.3f} {pdm[1]:7.3f} {pdm[2]:7.3f}', file=f)
         if x.istate==0:
             for n in range(1,x.iroots):
                 k = n-1 #
@@ -204,12 +204,12 @@ def cms_dip(x):
     # com = np.einsum('i,ij->j', mass, coords)/mass.sum()
 
     # ------------------- CAS-CI PDM AND TDM ------------------
-    eq_dip = tdm_casci(mo_sa,mc_eq,mol_eq,state=[0,0])
-    eq_dip*= nist.AU2DEBYE
-    eq_pdm = [eq_dip]
-    abs = np.linalg.norm(eq_dip)
+    pdm = tdm_casci(mo_sa,mc_eq,mol_eq,state=[0,0])
+    pdm*= nist.AU2DEBYE
+    eq_pdm = [pdm]
+    abs = np.linalg.norm(pdm)
     with open('dipoles_sa_casscf', 'a') as f:
-        print(x.iname, f'PDM <0|mu|0> ABS (D) = {abs:7.2f} XYZ (D) = {eq_dip[0]:7.3f} {eq_dip[1]:7.3f} {eq_dip[2]:7.3f}', file=f)
+        print(x.iname, f'PDM <0|mu|0> ABS (D) = {abs:7.2f} XYZ (D) = {pdm[0]:7.3f} {pdm[1]:7.3f} {pdm[2]:7.3f}', file=f)
     #Compute & save TDMs from the optimized excited to ground state
     if x.istate==0:
         tdm=[None]*(x.iroots-1) # from <0| to others
@@ -261,17 +261,17 @@ def cms_dip(x):
             
 
     # #Compute and save dipole moments at the optimized geometry 
-    # eq_dip_abc=transform_dip(eq_dip,mol)
-    # val=np.linalg.norm(eq_dip)
+    # pdm_abc=transform_dip(pdm,mol)
+    # val=np.linalg.norm(pdm)
     # print(x.iname, 'state is ', x.istate, 'ABS = %.2f' % (val) )
-    # print('Dipole along XYZ-coord axes: %8.4f %8.4f %8.4f \n' % (eq_dip[0],eq_dip[1],eq_dip[2]))
-    # print('Dipole along principle axes: %8.4f %8.4f %8.4f \n' % (eq_dip_abc[0],eq_dip_abc[1],eq_dip_abc[2]))
+    # print('Dipole along XYZ-coord axes: %8.4f %8.4f %8.4f \n' % (pdm[0],pdm[1],pdm[2]))
+    # print('Dipole along principle axes: %8.4f %8.4f %8.4f \n' % (pdm_abc[0],pdm_abc[1],pdm_abc[2]))
 
     # #Save final dipoles
     # with open('dipoles', 'a') as f:
     #     print('%s  %8.2f' % (out, val), file=f)
     # with open('dipoles_abs', 'a') as f:
-    #     print('%s  %8.2f  %8.2f  %8.2f' % (out, eq_dip_abc[0],eq_dip_abc[1],eq_dip_abc[2]), file=f)
+    #     print('%s  %8.2f  %8.2f  %8.2f' % (out, pdm_abc[0],pdm_abc[1],pdm_abc[2]), file=f)
 
     # #Compute state-specific NOONs
     # mc = mcscf.CASCI(mf, x.norb, x.nel).state_specific_(x.istate)
