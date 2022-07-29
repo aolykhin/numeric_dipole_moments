@@ -588,8 +588,8 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, unit
         cas.conv_tol = conv_tol
         cas.conv_tol_grad = conv_tol_grad
     #! may be redundant if geometry is the same as ini 
-    # print('Project orbs from the previous point')
-    # mo = mcscf.project_init_guess(cas, mo)
+    print('Project orbs from the previous point')
+    mo = mcscf.project_init_guess(cas, mo)
     
     if 'MC-PDFT' in (analyt + numer):
         cas.fcisolver.wfnsym = x.irep
@@ -778,7 +778,7 @@ class Molecule:
     irep    : str = "A" 
     ispin   : int = 0
     ibasis  : str = "julccpvdz"
-    grid    : str = 9
+    grid    : int = 9
 
 #--------------------- Set Up Parameters for Dipole Moment Curves--------------------
 # Set the bond range
