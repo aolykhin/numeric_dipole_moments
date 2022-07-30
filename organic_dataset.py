@@ -30,38 +30,12 @@ def dm_casci(mo,mc,mol,state):
         t_dm1_ao = reduce(np.dot, (orb, t_dm1, orb.T))
         dip = np.einsum('xij,ji->x', dip_ints, t_dm1_ao)
     else:
-        # ncore = mc.ncore
-        # ncas = mc.ncas
-        # nocc = ncore + ncas
-        # mo_core = mo[:,:ncore]
-        # mo_cas = mo[:,ncore:nocc]
-        # # with mol.with_common_orig(mass_center):
-        # #     dip_ints = mol.intor('cint1e_r_sph', comp=3)
-        # with mol.with_common_orig(mass_center):
-        #     dip_ints = mol.intor_symmetric('int1e_r', comp=3)
-        # t_dm1 = mc.fcisolver.trans_rdm1(ci[state[1]], ci[state[0]], mc.ncas, mc.nelecas)
-        # t_dm1_ao = reduce(np.dot, (orb, t_dm1, orb.T))
-        # # with mol.with_common_orig(mass_center):
-        # #     dip_ints = mol.intor('cint1e_r_sph', comp=3)
-        # # casdm1 = mc.fcisolver.make_rdm1(ci[state[0]], mc.ncas, mc.nelecas)
-        # dm_core = np.dot(mo_core, mo_core.T) * 2
-        # # dm_cas = reduce(np.dot, (mo_cas, casdm1, mo_cas.T))
-        # dm = dm_core + t_dm1_ao
-        # dip = -np.einsum('xij,ji->x', dip_ints, t_dm1_ao)
-        # # elec_term = -np.einsum('xij,ij->x', ao_dip, dm).real
-        # dip += nuclear_dipole(mc,origin='mass_center')
-        # # dip = elec_term + nuclear_dipole(mc,origin='mass_center')
-        # # dm = dip_moment(mol, dm=None, unit='Debye')
-
         ncore = mc.ncore
         ncas = mc.ncas
         nocc = ncore + ncas
         mo_core = mo[:,:ncore]
         mo_cas = mo[:,ncore:nocc]
-        # with mol.with_common_orig(mass_center):
-        #     dip_ints = mol.intor('cint1e_r_sph', comp=3)
         casdm1 = mc.fcisolver.make_rdm1([ci[state[1]]], mc.ncas, mc.nelecas)
-        # casdm1 = mc.fcisolver.make_rdm1(ci[state[0]], mc.ncas, mc.nelecas)
         dm_core = np.dot(mo_core, mo_core.T) * 2
         dm_cas = reduce(np.dot, (mo_cas, casdm1, mo_cas.T))
         dm = dm_core + dm_cas
@@ -69,7 +43,6 @@ def dm_casci(mo,mc,mol,state):
             ao_dip = mol.intor_symmetric('int1e_r', comp=3)
         dip = -np.einsum('xij,ij->x', ao_dip, dm).real
         dip += nuclear_dipole(mc,origin='mass_center')
-        # dm = dip_moment(mol, dm=dm, unit='Debye')
     dip *= nist.AU2DEBYE
     return dip
 
@@ -131,6 +104,7 @@ def findClockwiseAngle(ini, fin):
     return ang 
 
 def transform_dip(x, mol, pdm, tdm, method):
+    out = x.iname+'_'+str(x.nel)+'e'+str(x.norb)+'o'+'_'+str(x.istate)
     mass = mol.atom_mass_list()
     coords = mol.atom_coords(unit='ANG')
     mass_center = np.einsum('i,ij->j', mass, coords)/mass.sum()
@@ -147,9 +121,9 @@ def transform_dip(x, mol, pdm, tdm, method):
     tdm_abc, tdm_ang = get_ang_with_a_axis(tdm, rot_mat)
     with open(method+'_angles', 'a') as f:
         for i in range(len(pdm_ang)):
-            print(f'{x.iname} theta with pdm is {pdm_ang[i]:5.1f} degrees', file=f)
+            print(f'{out:<30} theta with pdm is {pdm_ang[i]:5.1f} degrees', file=f)
         for i in range(len(tdm_ang)):
-            print(f'{x.iname} theta with tdm is {tdm_ang[i]:5.1f} degrees', file=f)
+            print(f'{out:<30} theta with tdm is {tdm_ang[i]:5.1f} degrees', file=f)
     return pdm_abc, tdm_abc
 
 def get_ang_with_a_axis(dm, rot_mat):
@@ -181,12 +155,12 @@ def save_dipoles(x, filename, frame, diptype, dip, oscil=None, n=None):
     xyz = f' |{diptype}| = {tot:4.2f}    {frame} (D): {dip[0]:7.3f} {dip[1]:7.3f} {dip[2]:7.3f}'
     with open(filename, 'a') as f:
         if diptype == 'PDM':
-            print(f'{x.iname:<25} {diptype} <{x.istate}|mu|{x.istate}>' + xyz, file=f)
+            print(f'{x.iname:<30} {diptype} <{x.istate}|mu|{x.istate}>' + xyz, file=f)
         elif diptype == 'TDM':
             if x.istate == 0:
-                print(f'{x.iname:<25} {diptype} <{x.istate}|mu|0> Oscil = {oscil:4.3f}' + xyz, file=f)
+                print(f'{x.iname:<30} {diptype} <{x.istate}|mu|0> Oscil = {oscil:4.3f}' + xyz, file=f)
             else:
-                print(f'{x.iname:<25} {diptype} <0|mu|{n}> Oscil = {oscil:4.3f}' + xyz, file=f)
+                print(f'{x.iname:<30} {diptype} <0|mu|{n}> Oscil = {oscil:4.3f}' + xyz, file=f)
         else:
             raise NotImplementedError
 
@@ -265,7 +239,7 @@ def cms_dip(x):
 
     #Save final energies
     with open('cms_energies', 'a') as f:
-        print(f'{out:<25} {en}', file=f)
+        print(f'{out:<30} {en}', file=f)
     #-------------------------------------------------------------------
          
     # ------------------- CAS-CI PDM AND TDM ------------------
@@ -312,7 +286,7 @@ def cms_dip(x):
 
     #Save final energies
     with open('casci_energies', 'a') as f:
-        print(f'{out:<25} {en}', file=f)
+        print(f'{out:<30} {en}', file=f)
             
     return
 
