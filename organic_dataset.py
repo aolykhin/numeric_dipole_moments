@@ -298,7 +298,7 @@ class Molecule:
         self.ibasis   = ibasis
         self.ifunc    = ifunc
 
-x=[None]*20
+x=[None]*21
 x[0]  = Molecule('x7_azaindole'        , 10,9,  [22,27,29,30,31,35,38,43,44])
 x[1]  = Molecule('benzonitrile'        , 10,10, [21,24,25,26,27,29,32,43,45,46])
 x[2]  = Molecule('dimethoxybenzene'    , 10,8,  [24,25,35,36,37,47,50,56])
@@ -319,6 +319,7 @@ x[16] = Molecule('cis_2_naphthol'      , 12,11, [27,32,35,36,37,38,42,46,48,50,5
 x[17] = Molecule('trans_2_naphthol'    , 12,11, [28,32,35,36,37,38,42,45,48,50,53])
 x[18] = Molecule('phenol'              ,  8,7,  [19,23,24,25,31,33,34])
 x[19] = Molecule('propynal'            ,  8,7,  [11,12,13,14,16,21,22])
+x[20] = Molecule('x6_methylindole'     , 10,9,  [25,32,33,34,35,41,43,45,47])
 
 
 # x[12].istate = 0
