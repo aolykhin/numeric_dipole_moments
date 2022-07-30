@@ -6,10 +6,8 @@ from mrh.my_pyscf.prop.dip_moment.mcpdft import nuclear_dipole
 from scipy import linalg
 import numpy as np
 from pyscf.tools import molden
-from pyscf.geomopt import geometric_solver
 from pyscf.gto import inertia_moment
 from pyscf.data import nist
-import copy
 from pyscf.gto import inertia_moment
 from pyscf.data import nist
 from numpy.linalg import norm as norm
@@ -167,17 +165,14 @@ def cms_dip(x):
     mo = mcscf.sort_mo(mc, mf.mo_coeff, x.cas_list)
     mc.kernel(mo)
     mo = mc.mo_coeff 
+    molden.from_mo(mol, out+'_ini.molden', mc.mo_coeff)
 
     # ----------------- Geometry Optimization ----------------------
-    if x.opt == True:
+    if x.opt:
         mol_eq = mc.nuc_grad_method().as_scanner().optimizer().kernel()
     else: #Preoptimized geometry
-        mol_eq = gto.M(atom=open('geom_opt'+x.iname+'.xyz').read(), charge=x.icharge, spin=x.ispin,
+        mol_eq = gto.M(atom=open('geom_opt_'+out+'.xyz').read(), charge=x.icharge, spin=x.ispin,
             symmetry=x.isym, output=out+'.log', verbose=4, basis=x.ibasis)
-        # mc_eq  = copy.deepcopy(mc)
-        # mol_eq = copy.deepcopy(mol)
-        # mc_eq  = mc
-        # mol_eq = mol
 
     # -------------------- CMS-PDFT ---------------------------
     mf_eq = scf.RHF(mol_eq).run()
@@ -315,7 +310,7 @@ x[20] = Molecule('x6_methylindole'     , 10,9,  [25,32,33,34,35,41,43,45,47])
 # x[12].istate = 0
 # cms_dip(x[12])
 
-x[10].istate = 0
+# x[10].istate = 0
 # x[10].opt = False
 cms_dip(x[10])
 
