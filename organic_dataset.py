@@ -14,6 +14,7 @@ from numpy.linalg import norm as norm
 import math
 
 
+
 def dm_casci(mo,mc,mol,state):
     '''Return diagonal (PDM) and off-diagonal (TDM) dipole moments'''
     from functools import reduce
@@ -137,15 +138,15 @@ def get_ang_with_a_axis(dm, rot_mat):
 
 def save_dipoles(x, filename, frame, diptype, dip, oscil=None, n=None):
     tot = np.linalg.norm(dip)
-    xyz = f' |{diptype}| = {tot:7.2f} {frame} (D): {dip[0]:7.3f} {dip[1]:7.3f} {dip[2]:7.3f}'
+    xyz = f' |{diptype}| = {tot:4.2f}    {frame} (D): {dip[0]:7.3f} {dip[1]:7.3f} {dip[2]:7.3f}'
     with open(filename, 'a') as f:
         if diptype == 'PDM':
             print(f'{x.iname:<25} {diptype} <{x.istate}|mu|{x.istate}>' + xyz, file=f)
         elif diptype == 'TDM':
             if x.istate == 0:
-                print(f'{x.iname:<25} {diptype} <{x.istate}|mu|0> Oscil = {oscil:7.2f}' + xyz, file=f)
+                print(f'{x.iname:<25} {diptype} <{x.istate}|mu|0> Oscil = {oscil:4.2f}' + xyz, file=f)
             else:
-                print(f'{x.iname:<25} {diptype} <0|mu|{n}> Oscil = {oscil:7.2f}' + xyz, file=f)
+                print(f'{x.iname:<25} {diptype} <0|mu|{n}> Oscil = {oscil:4.2f}' + xyz, file=f)
         else:
             raise NotImplementedError
 
@@ -200,22 +201,26 @@ def cms_dip(x):
             oscil = (2/3)*(en[n]-en[0])*(tot**2)
             save_dipoles(x, 'cms_tdm', 'XYZ', 'TDM', tdm[k], oscil=oscil, n=n)
     else:
-        tdm = [mc_eq.trans_moment(state=[0,x.istate])]
+        tdm = mc_eq.trans_moment(state=[0,x.istate])
         tot = np.linalg.norm(tdm)/nist.AU2DEBYE
         oscil = (2/3)*(en[x.istate]-en[0])*(tot**2)
         tdm = [tdm]
-        save_dipoles(x, 'cms_tdm', 'XYZ', 'TDM', tdm[0], oscil=oscil)
+        save_dipoles(x, 'cms_tdm', 'XYZ', 'TDM', tdm[0], oscil=oscil, n=0)
         
 
     #Save TDMs in ABC frame
     pdm_abc, tdm_abc = transform_dip(x, mol, pdm, tdm, 'cms')
-    save_dipoles(x, 'cms_tdm_ABC', 'ABC', 'PDM', pdm_abc[0])
+    save_dipoles(x, 'cms_pdm_ABC', 'ABC', 'PDM', pdm_abc[0])
     if x.istate==0: # from <0| to others
         for n in range(1,x.iroots):
             k = n-1 # TDM's id 
-            save_dipoles(x, 'cms_tdm_ABC', 'ABC', 'TDM', tdm_abc[k])
-    else: 
-        save_dipoles(x, 'cms_tdm_ABC', 'ABC', 'TDM', tdm[0])
+            tot = np.linalg.norm(tdm_abc[k])/nist.AU2DEBYE
+            oscil = (2/3)*(en[n]-en[0])*(tot**2)
+            save_dipoles(x, 'cms_tdm_ABC', 'ABC', 'TDM', tdm_abc[k], oscil=oscil, n=n)
+    else:
+        tot = np.linalg.norm(tdm_abc[0])/nist.AU2DEBYE
+        oscil = (2/3)*(en[x.istate]-en[0])*(tot**2)
+        save_dipoles(x, 'cms_tdm_ABC', 'ABC', 'TDM', tdm_abc[0], oscil=oscil, n=0)
 
     #Save final energies
     with open('cms_energies', 'a') as f:
@@ -240,7 +245,7 @@ def cms_dip(x):
         tot = np.linalg.norm(tdm)/nist.AU2DEBYE
         oscil = (2/3)*(en[x.istate]-en[0])*(tot**2)
         tdm = [tdm]
-        save_dipoles(x, 'casci_tdm', 'XYZ', 'TDM', tdm[0], oscil=oscil)
+        save_dipoles(x, 'casci_tdm', 'XYZ', 'TDM', tdm[0], oscil=oscil, n=0)
 
     #Save TDMs in ABC frame
     pdm_abc, tdm_abc = transform_dip(x, mol, pdm, tdm, 'casci')
@@ -248,9 +253,13 @@ def cms_dip(x):
     if x.istate==0: # from <0| to others
         for n in range(1,x.iroots):
             k = n-1 # TDM's id 
-            save_dipoles(x, 'casci_tdm_ABC', 'ABC', 'TDM', tdm_abc[k])
+            tot = np.linalg.norm(tdm_abc[k])/nist.AU2DEBYE
+            oscil = (2/3)*(en[n]-en[0])*(tot**2)
+            save_dipoles(x, 'casci_tdm_ABC', 'ABC', 'TDM', tdm_abc[k], oscil=oscil, n=n)
     else: 
-        save_dipoles(x, 'casci_tdm_ABC', 'ABC', 'TDM', tdm[0])
+        tot = np.linalg.norm(tdm_abc[0])/nist.AU2DEBYE
+        oscil = (2/3)*(en[x.istate]-en[0])*(tot**2)
+        save_dipoles(x, 'casci_tdm_ABC', 'ABC', 'TDM', tdm_abc[0], oscil=oscil, n=0)
 
   
     #Save the optimized geometry to the xyz file
@@ -312,7 +321,9 @@ x[20] = Molecule('x6_methylindole'     , 10,9,  [25,32,33,34,35,41,43,45,47])
 
 # x[10].istate = 0
 # x[10].opt = False
-cms_dip(x[10])
+# cms_dip(x[10])
+
+cms_dip(x[18])
 
 # x[3].istate = 0
 # x[3].opt = False
