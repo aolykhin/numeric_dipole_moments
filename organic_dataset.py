@@ -5,6 +5,7 @@ from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.prop.dip_moment.mcpdft import nuclear_dipole
 from scipy import linalg
 import numpy as np
+import os
 from pyscf.tools import molden
 from pyscf.gto import inertia_moment
 from pyscf.data import nist
@@ -13,8 +14,6 @@ from pyscf.data import nist
 from numpy.linalg import norm as norm
 import math
 
-
-
 def dm_casci(mo,mc,mol,state):
     '''Return diagonal (PDM) and off-diagonal (TDM) dipole moments'''
     from functools import reduce
@@ -22,16 +21,57 @@ def dm_casci(mo,mc,mol,state):
     mass = mol.atom_mass_list()
     coords = mol.atom_coords()
     mass_center = np.einsum('i,ij->j', mass, coords)/mass.sum()
-    with mol.with_common_orig(mass_center):
-        dip_ints = mol.intor('cint1e_r_sph', comp=3)
     ci = mc.get_ci_adiabats(uci='MCSCF')
-    t_dm1 = mc.fcisolver.trans_rdm1(ci[state[1]], ci[state[0]], mc.ncas, mc.nelecas)
-    t_dm1_ao = reduce(np.dot, (orb, t_dm1, orb.T))
-    dm = np.einsum('xij,ji->x', dip_ints, t_dm1_ao)
-    if state[1] == state[0]: 
-        dm += nuclear_dipole(mc,origin='mass_center')
-    dm *= nist.AU2DEBYE
-    return dm
+    
+    if state[1] != state[0]: 
+        with mol.with_common_orig(mass_center):
+            dip_ints = mol.intor('cint1e_r_sph', comp=3)
+        t_dm1 = mc.fcisolver.trans_rdm1(ci[state[1]], ci[state[0]], mc.ncas, mc.nelecas)
+        t_dm1_ao = reduce(np.dot, (orb, t_dm1, orb.T))
+        dip = np.einsum('xij,ji->x', dip_ints, t_dm1_ao)
+    else:
+        # ncore = mc.ncore
+        # ncas = mc.ncas
+        # nocc = ncore + ncas
+        # mo_core = mo[:,:ncore]
+        # mo_cas = mo[:,ncore:nocc]
+        # # with mol.with_common_orig(mass_center):
+        # #     dip_ints = mol.intor('cint1e_r_sph', comp=3)
+        # with mol.with_common_orig(mass_center):
+        #     dip_ints = mol.intor_symmetric('int1e_r', comp=3)
+        # t_dm1 = mc.fcisolver.trans_rdm1(ci[state[1]], ci[state[0]], mc.ncas, mc.nelecas)
+        # t_dm1_ao = reduce(np.dot, (orb, t_dm1, orb.T))
+        # # with mol.with_common_orig(mass_center):
+        # #     dip_ints = mol.intor('cint1e_r_sph', comp=3)
+        # # casdm1 = mc.fcisolver.make_rdm1(ci[state[0]], mc.ncas, mc.nelecas)
+        # dm_core = np.dot(mo_core, mo_core.T) * 2
+        # # dm_cas = reduce(np.dot, (mo_cas, casdm1, mo_cas.T))
+        # dm = dm_core + t_dm1_ao
+        # dip = -np.einsum('xij,ji->x', dip_ints, t_dm1_ao)
+        # # elec_term = -np.einsum('xij,ij->x', ao_dip, dm).real
+        # dip += nuclear_dipole(mc,origin='mass_center')
+        # # dip = elec_term + nuclear_dipole(mc,origin='mass_center')
+        # # dm = dip_moment(mol, dm=None, unit='Debye')
+
+        ncore = mc.ncore
+        ncas = mc.ncas
+        nocc = ncore + ncas
+        mo_core = mo[:,:ncore]
+        mo_cas = mo[:,ncore:nocc]
+        # with mol.with_common_orig(mass_center):
+        #     dip_ints = mol.intor('cint1e_r_sph', comp=3)
+        casdm1 = mc.fcisolver.make_rdm1([ci[state[1]]], mc.ncas, mc.nelecas)
+        # casdm1 = mc.fcisolver.make_rdm1(ci[state[0]], mc.ncas, mc.nelecas)
+        dm_core = np.dot(mo_core, mo_core.T) * 2
+        dm_cas = reduce(np.dot, (mo_cas, casdm1, mo_cas.T))
+        dm = dm_core + dm_cas
+        with mol.with_common_orig(mass_center):
+            ao_dip = mol.intor_symmetric('int1e_r', comp=3)
+        dip = -np.einsum('xij,ij->x', ao_dip, dm).real
+        dip += nuclear_dipole(mc,origin='mass_center')
+        # dm = dip_moment(mol, dm=dm, unit='Debye')
+    dip *= nist.AU2DEBYE
+    return dip
 
 def render_tdm_pdm(x, mass_center, abc_vec, pdm, tdm, method):
     #set chemcraft parameters
@@ -105,7 +145,7 @@ def transform_dip(x, mol, pdm, tdm, method):
     rot_mat = np.linalg.solve(origin,abc_vec)
     pdm_abc, pdm_ang = get_ang_with_a_axis(pdm, rot_mat)
     tdm_abc, tdm_ang = get_ang_with_a_axis(tdm, rot_mat)
-    with open('tdms_angles_'+method, 'a') as f:
+    with open(method+'_angles', 'a') as f:
         for i in range(len(pdm_ang)):
             print(f'{x.iname} theta with pdm is {pdm_ang[i]:5.1f} degrees', file=f)
         for i in range(len(tdm_ang)):
@@ -144,9 +184,9 @@ def save_dipoles(x, filename, frame, diptype, dip, oscil=None, n=None):
             print(f'{x.iname:<25} {diptype} <{x.istate}|mu|{x.istate}>' + xyz, file=f)
         elif diptype == 'TDM':
             if x.istate == 0:
-                print(f'{x.iname:<25} {diptype} <{x.istate}|mu|0> Oscil = {oscil:4.2f}' + xyz, file=f)
+                print(f'{x.iname:<25} {diptype} <{x.istate}|mu|0> Oscil = {oscil:4.3f}' + xyz, file=f)
             else:
-                print(f'{x.iname:<25} {diptype} <0|mu|{n}> Oscil = {oscil:4.2f}' + xyz, file=f)
+                print(f'{x.iname:<25} {diptype} <0|mu|{n}> Oscil = {oscil:4.3f}' + xyz, file=f)
         else:
             raise NotImplementedError
 
@@ -155,14 +195,15 @@ def cms_dip(x):
     mol = gto.M(atom=open('geom_'+x.iname+'.xyz').read(), charge=x.icharge, spin=x.ispin,
                     symmetry=x.isym, output=out+'.log', verbose=4, basis=x.ibasis)
     weights=[1/x.iroots]*x.iroots 
-    
+
     # -------------------- HF ---------------------------
     mf = scf.RHF(mol).run()
     molden.from_mo(mol, out+'_hf.molden', mf.mo_coeff)
 
     # -------------------- MC-PDFT ---------------------------
-    mc = mcpdft.CASSCF(mf, x.ifunc, x.norb, x.nel)
-    mc.fcisolver = csf_solver(mol, smult=x.ispin+1)
+    mc = mcpdft.CASSCF(mf, x.ifunc, x.norb, x.nel, grids_level=x.grid)
+    mc.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
+    mc.fcisolver.wfnsym = x.irep
     mo = mcscf.sort_mo(mc, mf.mo_coeff, x.cas_list)
     mc.kernel(mo)
     mo = mc.mo_coeff 
@@ -177,8 +218,8 @@ def cms_dip(x):
 
     # -------------------- CMS-PDFT ---------------------------
     mf_eq = scf.RHF(mol_eq).run()
-    mc_eq = mcpdft.CASSCF(mf_eq, x.ifunc, x.norb, x.nel)
-    mc_eq.fcisolver = csf_solver(mol_eq, smult=x.ispin+1)
+    mc_eq = mcpdft.CASSCF(mf_eq, x.ifunc, x.norb, x.nel, grids_level=x.grid)
+    mc_eq.fcisolver = csf_solver(mol_eq, smult=x.ispin+1, symm=x.isym)
     mc_eq.fcisolver.wfnsym = x.irep
     mc_eq = mc_eq.multi_state(weights,'cms')
     mc_eq.max_cyc = 500
@@ -224,7 +265,7 @@ def cms_dip(x):
 
     #Save final energies
     with open('cms_energies', 'a') as f:
-        print('%s  %s' % (out, en), file=f)
+        print(f'{out:<25} {en}', file=f)
     #-------------------------------------------------------------------
          
     # ------------------- CAS-CI PDM AND TDM ------------------
@@ -263,14 +304,15 @@ def cms_dip(x):
 
   
     #Save the optimized geometry to the xyz file
-    if x.opt == True:
+    if x.opt:
         with open('geom_opt_'+out+'.xyz', 'w') as f:
             for i in range(mol_eq.natm):
-                print('%s  %s' % (mol_eq.atom_symbol(i), str(mol_eq.atom_coord(i,unit='Angstrom'))[1:-1]), file=f)
+                coord = str(mol_eq.atom_coord(i,unit='Angstrom'))[1:-1]
+                print(f'{mol_eq.atom_symbol(i)} {coord}', file=f)
 
     #Save final energies
     with open('casci_energies', 'a') as f:
-        print('%s  %s' % (out, en), file=f)
+        print(f'{out:<25} {en}', file=f)
             
     return
 
@@ -282,7 +324,7 @@ class Molecule:
     norb    : int
     cas_list: list
     iroots  : int = 2
-    istate  : int = 1
+    istate  : int = 0
     icharge : int = 0
     isym    : str = "C1"
     irep    : str = "A" 
@@ -321,9 +363,9 @@ x[20] = Molecule('x6_methylindole'     , 10,9,  [25,32,33,34,35,41,43,45,47])
 
 # x[10].istate = 0
 # x[10].opt = False
-# cms_dip(x[10])
+cms_dip(x[10])
 
-cms_dip(x[18])
+# cms_dip(x[18])
 
 # x[3].istate = 0
 # x[3].opt = False
