@@ -270,22 +270,23 @@ def cms_dip(x):
             
     return
 
+from dataclasses import dataclass
+@dataclass
 class Molecule:
-    def __init__(self, iname, nel, norb, cas_list, iroots=2, istate=1, 
-                opt=False, icharge=0, isym='C1', irep='A', ispin=0, ibasis='julccpvdz', ifunc='tPBE'):
-        self.iname    = iname
-        self.nel      = nel
-        self.norb     = norb
-        self.cas_list = cas_list
-        self.iroots   = iroots
-        self.istate   = istate
-        self.opt      = opt
-        self.icharge  = icharge
-        self.isym     = isym
-        self.irep     = irep
-        self.ispin    = ispin
-        self.ibasis   = ibasis
-        self.ifunc    = ifunc
+    iname   : str
+    nel     : int
+    norb    : int
+    cas_list: list
+    iroots  : int = 2
+    istate  : int = 1
+    icharge : int = 0
+    isym    : str = "C1"
+    irep    : str = "A" 
+    ispin   : int = 0
+    ibasis  : str = "julccpvdz"
+    grid    : int = 3
+    ifunc   : str = 'tPBE'
+    opt     : bool = False
 
 x=[None]*21
 x[0]  = Molecule('x7_azaindole'        , 10,9,  [22,27,29,30,31,35,38,43,44])
