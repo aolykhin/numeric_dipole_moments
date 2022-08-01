@@ -1,5 +1,4 @@
 from logging import raiseExceptions
-from black import is_type_comment
 from tabulate import tabulate
 import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
@@ -11,113 +10,12 @@ from scipy import linalg
 import numpy as np
 import os
 from pyscf.tools import molden
-import copy
 from colored import fg, attr
 from pyscf.data import nist
 from pyscf.fci.addons import overlap as braket
 import itertools
 from numpy import unravel_index
 from icecream import ic
-
-# os.environ['OMP_NUM_THREADS'] = "4"
-# os.environ['MKL_NUM_THREADS'] = "4"
-# os.environ['OPENBLAS_NUM_THREADS'] = "4"
-
-# List of molecules and molecular parameters
-geom_phenol_opt= '''
-C       -1.182853111      1.200708431      0.00000000
-C        0.212397551      1.216431879      0.00000000
-C       -1.877648981     -0.011392736      0.00000000
-H        0.770332141      2.159905341      0.00000000
-H       -2.974311304     -0.021467798      0.00000000
-C        0.919152698      0.005414786      0.00000000
-C       -1.164162291     -1.211169261      0.00000000
-H       -1.697713380     -2.169828607      0.00000000
-C        0.232754869     -1.212093364      0.00000000
-H        0.793712181     -2.157907002      0.00000000
-H       -1.735970731      2.149003232      0.00000000
-O        2.284795534      0.064463230      0.00000000
-H        2.640406066     -0.838707361      0.00000000
-'''
-geom_OH_phenol= '''
-C       -2.586199811     -1.068328539     -2.343227944
-C       -1.383719126     -0.571709401     -1.839139664
-C       -3.598933171     -1.486733966     -1.476306928
-H       -0.580901222     -0.240090937     -2.507686505
-H       -4.543398025     -1.876891664     -1.874465443
-C       -1.192810178     -0.493086491     -0.452249284
-C       -3.398663509     -1.403899151     -0.097309120
-H       -4.185490834     -1.729852747      0.594389093
-C       -2.200418093     -0.909124041      0.423137737
-H       -2.045275617     -0.844707274      1.509797436
-H       -2.734632202     -1.130309287     -3.429202743
-O        0.000000000      0.000000000      0.000000000
-H        0.000000000      0.000000000      {}
-'''
-geom_phenol_12e11o= '''
-C       -2.622730874     -1.013542229     -2.331647466
-C       -1.406745441     -0.543467761     -1.836239389
-C       -3.642230632     -1.407856573     -1.459091122
-H       -0.600882859     -0.232144838     -2.511037202
-H       -4.597665462     -1.776495891     -1.851638458
-C       -1.204492019     -0.465471372     -0.448760082
-C       -3.431148118     -1.326314087     -0.081269194
-H       -4.220682665     -1.631881105      0.616909336
-C       -2.218870662     -0.857801984      0.431663464
-H       -2.057527810     -0.795466793      1.517843236
-H       -2.777706083     -1.073150292     -3.417047881
-O        0.000000000      0.000000000      0.000000000
-H        0.000000000      0.000000000      {}
-'''
-geom_phenol= '''
-C        1.214793846     -1.192084882      0.000000000
-C       -0.181182920     -1.223420370      0.000000000
-C        1.885645321      0.032533975      0.000000000
-H       -0.703107911     -2.176177034      0.000000000
-H        2.971719251      0.056913772      0.000000000
-C       -0.906309250     -0.030135294      0.000000000
-C        1.160518991      1.225819051      0.000000000
-H        1.682443982      2.178575715      0.000000000
-C       -0.235457775      1.194483563      0.000000000
-H       -0.799607233      2.122861284      0.000000000
-H        1.778943305     -2.120462603      0.000000000
-O       -2.345946581     -0.062451754      0.000000000
-H       -2.680887890      0.843761215      0.000000000
-'''
-geom_h2co= '''
-H       -0.000000000      0.950627350     -0.591483790
-H       -0.000000000     -0.950627350     -0.591483790
-C        0.000000000      0.000000000      0.000000000
-O        0.000000000      0.000000000     {}
-'''
-geom_furan= '''
-C        0.000000000     -0.965551055     -2.020010585
-C        0.000000000     -1.993824223     -1.018526668
-C        0.000000000     -1.352073201      0.181141565
-O        0.000000000      0.000000000      0.000000000
-C        0.000000000      0.216762264     -1.346821565
-H        0.000000000     -1.094564216     -3.092622941
-H        0.000000000     -3.062658055     -1.175803180
-H        0.000000000     -1.688293885      1.206105691
-H        0.000000000      1.250242874     -1.655874372
-'''
-geom_butadiene= '''
-C       -1.723496679     -0.622891260      0.000000000
-H       -2.263989282     -1.564248373      0.000000000
-H       -2.311546164      0.289288564      0.000000000
-C       -0.385732145     -0.608988883      0.000000000
-C        0.385732145      0.608988883      0.000000000
-H        0.153350318     -1.554122238      0.000000000
-H       -0.153350318      1.554122238      0.000000000
-C        1.723496679      0.622891260      0.000000000
-H        2.311546164     -0.289288564      0.000000000
-H        2.263989282      1.564248373      0.000000000
-'''
-geom_h2o='''
-O  0.00000000   0.08111156   0.00000000
-H  0.78620605   0.66349738   0.00000000
-H -0.78620605   0.66349738   0.00000000
-'''
 
 def cs(text): return fg('light_green')+str(text)+attr('reset')
 
@@ -560,8 +458,8 @@ def get_dipole(x, field, numer, analyt, mo, ci, dist, ntdm, dmcFLAG=True):
     Also returns the MOs and CI vectors for a given geometry 
     '''
     out = x.iname+'_'+f"{dist:.2f}"
-    xyz = open(str(dist).zfill(2)+'.xyz').read() if x.geom == 'frames' else x.geom
-    mol = gto.M(atom=xyz,charge=x.icharge,spin=x.ispin,output=out+'.log',
+    # xyz = open(str(dist).zfill(2)+'.xyz').read() if x.geom == 'frames' else x.geom
+    mol = gto.M(atom=x.geom,charge=x.icharge,spin=x.ispin,output=out+'.log',
                 verbose=4, basis=x.ibasis, symmetry=x.isym)
         
     #Determine origin
@@ -761,11 +659,11 @@ from typing import List
 class Molecule:
     ''' Differentiation can be done either by 2-point or 4-point formula'''
     iname   : str
-    geom    : str
     nel     : int
     norb    : int
     cas_list: list
-    init    : int = 0
+    geom    : str = 'frame'
+    init    : float = 3.0
     iroots  : int = 1
     istate  : int = 0
     icharge : int = 0
@@ -773,7 +671,7 @@ class Molecule:
     irep    : str = "A" 
     ispin   : int = 0
     ibasis  : str = "julccpvdz"
-    grid    : int = 9
+    grid    : int = 3
     formula : str = "2-point"
     unit    : str = 'Debye'
 
@@ -840,80 +738,64 @@ dmcFLAG=False
 dmcFLAG=True
 
 # See class Molecule for the list of variables.
-butadiene_4e4o   = Molecule('butadiene_4e4o',geom_butadiene,  4,4, [14,15,16,17],          ibasis='631g*', iroots=2)
-furan_6e5o       = Molecule('furan_6e5o',    geom_furan,      6,5, [12,17,18,19,20],       ibasis='631g*', iroots=3)
-furan_6e5o_2       = Molecule('furan_6e5o',    geom_furan,      6,5, [12,17,18,19,20],       ibasis='631g*', iroots=2)
-furan_6e5o_A1       = Molecule('furan_6e5o',    geom_furan,      6,5, [12,17,18,19,20],       ibasis='631g*', iroots=3,isym='C2v', irep='A1')
-furan_6e5o_aug   = Molecule('furan_6e5o_aug',geom_furan,      6,5, [12,17,18,23,29],       ibasis='aug-cc-pvdz', iroots=3)
-furan_6e5o_aug_A1   = Molecule('furan_6e5o_aug',geom_furan,      6,5, [12,17,18,23,29],       ibasis='aug-cc-pvdz', iroots=3,isym='C2v', irep='A1')
-furan_6e5o_aug_A1_2   = Molecule('furan_6e5o_aug',geom_furan,      6,5, [12,17,18,23,29],       ibasis='aug-cc-pvdz', iroots=2,isym='C2v', irep='A1')
-furan_6e5o_aug_2 = Molecule('furan_6e5o_aug',geom_furan,      6,5, [12,17,18,23,29],       ibasis='aug-cc-pvdz', iroots=2)
-h2co_6e6o        = Molecule('h2co_6e6o',     geom_h2co,       6,6, [6,7,8,9,10,12],        init=1.20, iroots=2)
-phenol_8e7o_sto  = Molecule('phenol_8e7o_sto',geom_phenol,    8,7, [19,23,24,25,26,27,28], iroots=2, ibasis='sto-3g')
-phenol_8e7o      = Molecule('phenol_8e7o',  geom_phenol,      8,7, [19,23,24,25,31,32,34], init=0.0, iroots=2)
-phenol_8e7o_opt  = Molecule('phenol_opt',  geom_phenol_opt,   8,7, [18,23,24,25,31,33,34], init=0.0, iroots=2)
-OH_phenol_10e9o  = Molecule('OH_phenol_10e9o', geom_OH_phenol,10,9,[19,20,23,24,25,26,31,33,34], init=1.3, iroots=2)
-OH_phenol3_10e9o =  copy.deepcopy(OH_phenol_10e9o)
-OH_phenol3_10e9o.iroots=3
-phenol_8e7o_sto_3      =  copy.deepcopy(phenol_8e7o_sto)
-phenol_8e7o_sto_4      =  copy.deepcopy(phenol_8e7o_sto)
-phenol_8e7o_sto_3.iroots=3
-phenol_8e7o_sto_4.iroots=4
-spiro_11e10o  = Molecule('spiro_11e10o','frames',11,10,[35,43,50,51,52,53, 55,76,87,100], iroots=2, icharge=1, ispin=1)
-phenol_12e11o  = Molecule('phenol_12e11o', geom_phenol_12e11o,12,11,[19,20,21,23,24,25,26,31,33,34,58], init=3.0, iroots=3)
-phenol_12e11o.grid=6
+crh_7e7o         = Molecule('crh',   7,7, [10,11,12,13,14,15, 19], init=1.60, ispin=5, ibasis='def2tzvpd')
+ch5_2e2o         = Molecule('ch5',   2,2, [29, 35],                init=1.50, iroots=1, ibasis='augccpvdz')
+co_10e8o         = Molecule('co',   10,8, [3,4,5,6,7, 8,9,10],     init=1.20, iroots=3, ibasis='augccpvdz',)
+h2co_6e6o        = Molecule('h2co',  6,6, [6,7,8,9,10,12],         init=1.20, iroots=2)
+butadiene_4e4o   = Molecule('butadiene', 4,4, [14,15,16,17],    ibasis='631g*', iroots=2)
+furan_6e5o       = Molecule('furan',     6,5, [12,17,18,19,20], ibasis='631g*', iroots=3)
+furan_6e5o_2     = Molecule('furan',     6,5, [12,17,18,19,20], ibasis='631g*', iroots=2)
+furan_6e5o_A1    = Molecule('furan',     6,5, [12,17,18,19,20], ibasis='631g*', iroots=3,isym='C2v', irep='A1')
+furan_6e5o_aug   = Molecule('furan',     6,5, [12,17,18,23,29], ibasis='aug-cc-pvdz', iroots=3)
+furan_6e5o_aug_A1= Molecule('furan',     6,5, [12,17,18,23,29], ibasis='aug-cc-pvdz', iroots=3,isym='C2v', irep='A1')
+furan_6e5o_aug_A1_2 = Molecule('furan',  6,5, [12,17,18,23,29], ibasis='aug-cc-pvdz', iroots=2,isym='C2v', irep='A1')
+furan_6e5o_aug_2 = Molecule('furan',     6,5, [12,17,18,23,29], ibasis='aug-cc-pvdz', iroots=2)
+h2co_6e6o        = Molecule('h2co_scan', 6,6, [6,7,8,9,10,12],  init=1.20, iroots=2)
+phenol_10e9o     = Molecule('phenol_scan_10e9o',     10,9, [19,20,23,24,25,26,31,33,34], init=1.3, iroots=3)
+phenol_12e11o    = Molecule('phenol_scan_12e11o',   12,11, [19,20,21,23,24,25,26,31,33,34,58], iroots=3)
+spiro_11e10o     = Molecule('spiro_11e10o','frames',11,10, [35,43,50,51,52,53, 55,76,87,100], iroots=2, icharge=1, ispin=1)
+furan_6e5o_2_shifted = Molecule('furan_shift', 6,5, [12,17,18,19,20], ibasis='631g*', iroots=2)
+furan_6e5o_2_rotated = Molecule('furan_rot',   6,5, [12,17,18,19,20], ibasis='631g*', iroots=2)
+furan_6e5o_2         = Molecule('furan',       6,5, [12,17,18,19,20], ibasis='631g*', iroots=2)
 
 # unit tests
-h2o_4e4o        = Molecule('h2o_4e4o', geom_h2o, 4,4, [4,5,8,9], iroots=3, grid=1, isym='c2v', irep='A1', ibasis='aug-cc-pVDZ')
-furancat_5e5o   = Molecule('furancat_5e5o', geom_furan, 5,5, [12,17,18,19,20], iroots=3, grid=1, icharge=1, ispin=1, ibasis='sto-3g')
-furancat_5e5o_2sym = Molecule('furancat_5e5o', geom_furan, 5,5, [12,17,18,19,20], iroots=2, grid=1, icharge=1, ispin=1, ibasis='sto-3g', isym='C2v', irep='A2')
-furan_6e5o      = Molecule('furancat_6e5o', geom_furan, 6,5, [12,17,18,19,20], iroots=3, grid=1, isym='C2v', irep='A1', ibasis='sto-3g')
-# furancat_5e5o_2 = Molecule('furancat_5e5o', geom_furan, 5,5, [12,17,18,19,20], iroots=2, grid=1, icharge=1, ispin=1, ibasis='sto-3g')
-# furancat_5e5o_3 = Molecule('furancat_5e5o', geom_furan, 5,5, [12,17,18,19,20], iroots=3, grid=1, icharge=1, ispin=1, ibasis='sto-3g', isym='C2v', irep='A1')
+h2o_4e4o      = Molecule('h2o', 4,4, [4,5,8,9], iroots=3, grid=1, isym='c2v', irep='A1', ibasis='aug-cc-pVDZ')
+furancat_5e5o = Molecule('furancat', 5,5, [12,17,18,19,20], iroots=3, grid=1, icharge = 1, ispin =1, ibasis='sto-3g')
+furan_6e5o    = Molecule('furancat', 6,5, [12,17,18,19,20], iroots=3, grid=1, isym='C2v', irep ='A1', ibasis='sto-3g')
 
 #Select species for which the dipole moment curves will be constructed
-# species=[phenol_8e7o]
 species=[spiro_11e10o]
-species=[OH_phenol3_10e9o]
-species=[OH_phenol_10e9o]
-species=[phenol_8e7o]
-species=[phenol_8e7o_opt]
-species=[phenol_8e7o_sto]
-species=[phenol_8e7o_sto_4]
-species=[phenol_8e7o_sto_3]
+species=[phenol_10e9o]
 species=[phenol_12e11o]
 species=[butadiene_4e4o]
 species=[furan_6e5o_aug_2]
-# species=[furan_6e5o]
-# species=[furan_6e5o_aug]
-# species=[furan_6e5o_A1]
-# species=[furan_6e5o_aug_A1]
-# species=[furan_6e5o_aug_A1_2]
+species=[furan_6e5o]
+species=[furan_6e5o_aug]
+species=[furan_6e5o_A1]
+species=[furan_6e5o_aug_A1]
+species=[furan_6e5o_aug_A1_2]
 species=[furancat_5e5o]
 species=[furan_6e5o]
-# species=[furancat_5e5o_2]
-# species=[furancat_5e5o_3]
-species=[furancat_5e5o_2sym]
+species=[furancat_5e5o]
 species=[h2o_4e4o]
-
 
 # ---------------------- MAIN DRIVER OVER DISTANCES -------------------
 scan=False if len(bonds)==1 else True #Determine if multiple bonds are passed
 for x in species:
+    if x.iname == 'spiro':
+        xyz = open(str(dist).zfill(2)+'.xyz').read()
+    else:
+        xyz = open('geom_'+x.iname+'.xyz').read()
     dip_scan = [ [] for _ in range(len(x.ontop)) ]
     en_scan  = [ [] for _ in range(len(x.ontop)) ] # Empty lists per functional
     # Get MOs before running a scan
-    y=copy.deepcopy(x)
-    y.geom=y.geom.format(y.init)
-    mo, ci = init_guess(y, analyt, numer) if x !=spiro_11e10o else 0 #spiro MOs should be provided manually
+    x.geom=xyz.format(x.init)
+    mo, ci = init_guess(x, analyt, numer) if x !=spiro_11e10o else 0 #spiro MOs should be provided manually
     ntdm=np.math.factorial(x.iroots)//(np.math.factorial(x.iroots-2)*2)
 
+    # MOs and CI vectors are taken from the previous point
     for i, dist in enumerate(bonds, start=0):
-        # Update the bond length in the instance
-        if i==0: template=x.geom
-        x.geom=template.format(dist)
-
-        # MOs and CI vectors are taken from the previous point
+        x.geom = xyz.format(dist)
         mo, ci = run(x, field, numer, analyt, mo, ci, dist, scan, dip_scan, en_scan, ntdm, dmcFLAG=dmcFLAG)
         
         dip_head = ['Distance','CASSCF','MC-PDFT']
