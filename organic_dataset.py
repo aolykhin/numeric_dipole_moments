@@ -61,8 +61,9 @@ def render_tdm_pdm(x, mass_center, abc_vec, pdm, tdm, method):
     grey   = '0.02  0.1   0.5   0.5   0.5  0'
 
     #shift abc frame to the COM and print out coordinated of abc vectors
+    out = x.iname+'_'+str(x.nel)+'e'+str(x.norb)+'o'+'_'+str(x.istate)
     with open('chemcraft_dipoles_'+method, 'a') as f:
-        print(x.iname, file=f)
+        print(out, file=f)
         print('#Inertial axes', file=f)
         for i in range(2): #only a and b
             axis_main =  abc_vec[:,i]*scale_axes + mass_center
