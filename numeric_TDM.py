@@ -553,7 +553,7 @@ def init_guess(y, analyt, numer):
     return mo, ci
 
 #-------------Compute energies and dipoles for the given geometry-----------
-def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, unit="Debye", dmcFLAG=True):
+def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ntdm, unit="Debye", dmcFLAG=True):
     '''
     Evaluates energies and dipole moments along the bond contraction coordinate
     Ruturns analytical and numerical dipoles for a given geometry for each functional used 
@@ -613,20 +613,16 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, unit
     ci=cas.ci 
     
     #MC-PDFT step
-    numeric  = [None]*len(ontop)
-    analytic = [None]*len(ontop)
-    en_dist  = [None]*len(ontop) # energy array indexed by functional
+    numeric  = [None]*len(x.ontop)
+    analytic = [None]*len(x.ontop)
+    en_dist  = [None]*len(x.ontop) # energy array indexed by functional
 
     origin = "Charge_center" if x.icharge !=0 else "Coord_center"
 
-    for k, ifunc in enumerate(ontop): # Over on-top functionals
+    for k, ifunc in enumerate(x.ontop): # Over on-top functionals
 
-        ot='htPBE0' if len(ifunc)>10 else ifunc
-        mol.output=x.iname+'_'+ot+'_'+f"{dist:.2f}"+'.log'
+        mol.output=x.iname+'_'+ifunc+'_'+f"{dist:.2f}"+'.log'
         mol.build()
-        if len(ifunc) > 10 or ifunc=='ftPBE':
-            raise NotImplementedError
-
         #Initialize to zero
         dip_cms  = np.zeros(4*ntdm).tolist()
         abs_pdft = 0
@@ -729,15 +725,15 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, unit
         en_dist [k] = [dist, e_casscf, e_pdft] + e_states
     return numeric, analytic, en_dist, mo, ci
 
-def run(x, field, formula, numer, analyt, mo, ci, dist, ontop, scan, dip_scan, en_scan, ntdm, unit='Debye', dmcFLAG=True):
+def run(x, field, formula, numer, analyt, mo, ci, dist, scan, dip_scan, en_scan, ntdm, unit='Debye', dmcFLAG=True):
     '''
     Get dipoles & energies for a fixed distance
     '''
     numeric, analytic, en_dist, mo, ci = \
-        get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ontop, ntdm, unit=unit, dmcFLAG=dmcFLAG)
+        get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ntdm, unit=unit, dmcFLAG=dmcFLAG)
 
     # Accumulate analytic dipole moments and energies
-    for k, ifunc in enumerate(ontop):
+    for k, ifunc in enumerate(x.ontop):
         out = 'dmc_'+x.iname+'_'+ifunc+'.txt'
         dip_scan[k].append(analytic[k]) 
         en_scan[k].append(en_dist[k]) 
@@ -745,8 +741,7 @@ def run(x, field, formula, numer, analyt, mo, ci, dist, ontop, scan, dip_scan, e
         # Print & save numeric dipole moments
         if numer:
             for method in numer:
-                ot='htPBE0' if len(ifunc)>10 else ifunc
-                print(f"Numeric dipole at {cs(dist)} ang found with {cs(method)} ({cs(ot)})")
+                print(f"Numeric dipole at {cs(dist)} ang found with {cs(method)} ({cs(ifunc)})")
                 header=['Field']
                 for i in range(x.iroots):
                     header+=['X', 'Y', 'Z', f'ABS ({i+1})'] 
@@ -755,14 +750,14 @@ def run(x, field, formula, numer, analyt, mo, ci, dist, ontop, scan, dip_scan, e
                 print(numer_point)
                 action='w' if scan==False else 'a'
                 with open(out, action) as f:
-                    f.write(f"Numeric dipole at {dist:.3f} ang found with {method} ({ot})\n")
+                    f.write(f"Numeric dipole at {dist:.3f} ang found with {method} ({ifunc})\n")
                     f.write(numer_point)
                     f.write('\n')
     return mo, ci
 
 
-from dataclasses import dataclass
-
+from dataclass_property import dataclass, field_property
+from typing import List
 @dataclass
 class Molecule:
     iname   : str
@@ -779,6 +774,24 @@ class Molecule:
     ispin   : int = 0
     ibasis  : str = "julccpvdz"
     grid    : int = 9
+
+    @field_property
+    def ontop(self) -> List[str]:
+        return self._ontop
+
+    @ontop.default_factory
+    @classmethod
+    def ontop(cls):
+        return ["tPBE"]
+
+    @ontop.setter
+    def ontop(self, lst: List[str]):
+        for name in lst:
+            if len(name) > 10:
+                raise NotImplementedError('Hybrid functionals were not tested')
+            elif name[0] =='f':
+                raise NotImplementedError('Fully-translated functionals were not tested')
+        self._ontop = lst
 
 #--------------------- Set Up Parameters for Dipole Moment Curves--------------------
 # Set the bond range
@@ -812,14 +825,6 @@ conv_tol_grad= 1e-6
 thresh = [conv_tol]+[conv_tol_grad]
 max_cyc = 100
 
-# Set name for tPBE0 (HMC-PDFT functional)
-hybrid = 't'+ mcpdft.hyb('PBE', 0.25, 'average')
-# Set on-top functional
-ontop= ['tPBE']
-ontop= ['tBLYP']
-# ontop= ['tPBE', 'tBLYP', 'tOPBE']
-# ontop= [hybrid,'ftPBE']
-
 # Set differentiation technique
 formula= "2-point"
 # formula = "4-point"
@@ -827,14 +832,14 @@ formula= "2-point"
 # Set how dipole moments should be computed
 numer  = []
 analyt = []
-numer = ['CMS-PDFT']
+# numer = ['CMS-PDFT']
 # numer = ['SA-PDFT']
 analyt = ['CMS-PDFT']
 # analyt = ['CMS-PDFT','SA-CASSCF']
 # analyt = ['SA-CASSCF']
 # analyt = ['SA-PDFT']
 dmcFLAG=False 
-dmcFLAG=True
+# dmcFLAG=True
 unit = 'Debye'
 unit = 'AU'
 
@@ -871,7 +876,6 @@ furan_6e5o      = Molecule('furancat_6e5o', geom_furan, 6,5, [12,17,18,19,20], i
 # furancat_5e5o_3 = Molecule('furancat_5e5o', geom_furan, 5,5, [12,17,18,19,20], iroots=3, grid=1, icharge=1, ispin=1, ibasis='sto-3g', isym='C2v', irep='A1')
 
 #Select species for which the dipole moment curves will be constructed
-species=[h2co_6e6o]
 # species=[phenol_8e7o]
 species=[spiro_11e10o]
 species=[OH_phenol3_10e9o]
@@ -894,17 +898,18 @@ species=[furan_6e5o]
 # species=[furancat_5e5o_2]
 # species=[furancat_5e5o_3]
 species=[furancat_5e5o_2sym]
+# h2co_6e6o.ontop = ['tBLYP','tPBE']
+h2o_4e4o        = Molecule('h2o_4e4o', geom_h2o, 4,4, [4,5,8,9], ontop=['tBLYP','tPBE'], iroots=3, grid=1, isym='c2v', irep='A1', ibasis='aug-cc-pVDZ')
+print('AOL test ontop',h2o_4e4o.ontop )
+species=[h2o_4e4o]
 
 
 # ---------------------- MAIN DRIVER OVER DISTANCES -------------------
-dip_scan = [ [] for _ in range(len(ontop)) ]
-en_scan  = [ [] for _ in range(len(ontop)) ] # Empty lists per functional
 scan=False if len(bonds)==1 else True #Determine if multiple bonds are passed
-#In case if numer and analyt are not supplied
-# exec('try:numer\nexcept:numer=None')
-# exec('try:analyt\nexcept:analyt=None')
-
 for x in species:
+    print('AOL',x.ontop)
+    dip_scan = [ [] for _ in range(len(x.ontop)) ]
+    en_scan  = [ [] for _ in range(len(x.ontop)) ] # Empty lists per functional
     # Get MOs before running a scan
     y=copy.deepcopy(x)
     y.geom=y.geom.format(y.init)
@@ -917,7 +922,7 @@ for x in species:
         x.geom=template.format(dist)
 
         # MOs and CI vectors are taken from the previous point
-        mo, ci = run(x, field, formula, numer, analyt, mo, ci, dist, ontop, scan, dip_scan, en_scan, ntdm, unit=unit, dmcFLAG=dmcFLAG)
+        mo, ci = run(x, field, formula, numer, analyt, mo, ci, dist, scan, dip_scan, en_scan, ntdm, unit=unit, dmcFLAG=dmcFLAG)
         
         dip_head = ['Distance','CASSCF','MC-PDFT']
         for j in range(x.iroots):
@@ -931,7 +936,7 @@ for x in species:
                 en_head.append(line)
             en_sig = (".2f",)+(".8f",)*(2+x.iroots)
 
-        for k, ifunc in enumerate(ontop):
+        for k, ifunc in enumerate(x.ontop):
             out = x.iname+'_'+ifunc+'.txt'
             if analyt:
                 print(f"Analytic dipole moments found with {cs(ifunc)}")
