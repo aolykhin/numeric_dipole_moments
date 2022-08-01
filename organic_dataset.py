@@ -96,8 +96,9 @@ def render_tdm_pdm(x, mass_center, abc_vec, pdm, tdm, method):
 # counterclockwise rotation from vec1 to vec2
 def findClockwiseAngle(ini, fin):
     ind=2 # c-component in abc frame
-    if len(ini)==3 and abs(ini[ind])<1e-4: ini=np.delete(ini,ind) 
-    if len(fin)==3 and abs(fin[ind])<1e-4: fin=np.delete(fin,ind)
+    if len(ini)==3 and abs(ini[ind])<1e-3: ini=np.delete(ini,ind) 
+    if len(fin)==3 and abs(fin[ind])<1e-3: fin=np.delete(fin,ind)
+    if len(ini) != len(fin): raise ValueError('Initial and final vectors have different lengths')
     if norm(ini) <1e-3: #Trivial case of zero TDM 
         ang = 0
     else:
