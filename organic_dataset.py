@@ -310,6 +310,13 @@ class Molecule:
     ifunc   : str = 'tPBE'
     opt     : bool = False
 
+    def __post_init__(self):
+        for func in self.ifunc:
+            if len(func) > 10:
+                raise NotImplementedError('Hybrid functionals were not tested')
+            elif func[0] =='f':
+                raise NotImplementedError('Fully-translated functionals were not tested')
+
 x=[None]*21
 x[0]  = Molecule('x7_azaindole'        , 10,9,  [22,27,29,30,31,35,38,43,44])
 x[1]  = Molecule('benzonitrile'        , 10,10, [21,24,25,26,27,29,32,43,45,46])

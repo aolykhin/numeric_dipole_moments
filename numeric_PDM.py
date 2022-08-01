@@ -402,7 +402,7 @@ def run(x, field, numer, analyt, mo, ci, dist, scan, dip_scan, en_scan, dmcFLAG=
                     f.write('\n')
     return mo, ci
 
-from dataclass_property import dataclass, field_property
+from dataclasses import dataclass, field
 from typing import List
 @dataclass
 class Molecule:
@@ -410,6 +410,7 @@ class Molecule:
     nel     : int
     norb    : int
     cas_list: list
+    ontop   : List[str] = field(default_factory=lambda: ['tPBE'])
     geom    : str = 'frame'
     init    : float = 3.0
     iroots  : int = 1
@@ -423,23 +424,12 @@ class Molecule:
     formula : str = "2-point"
     unit    : str = 'Debye'
 
-    @field_property
-    def ontop(self) -> List[str]:
-        return self._ontop
-
-    @ontop.default_factory
-    @classmethod
-    def ontop(cls):
-        return ["tPBE"]
-
-    @ontop.setter
-    def ontop(self, lst: List[str]):
-        for name in lst:
-            if len(name) > 10:
+    def __post_init__(self):
+        for func in self.ontop:
+            if len(func) > 10:
                 raise NotImplementedError('Hybrid functionals were not tested')
-            elif name[0] =='f':
+            elif func[0] =='f':
                 raise NotImplementedError('Fully-translated functionals were not tested')
-        self._ontop = lst
 #--------------------- Set Up Parameters for Dipole Moment Curves--------------------
 # Set the bond range
 bonds = np.array([1.0])
@@ -485,43 +475,26 @@ dmcFLAG=False
 dmcFLAG=True
 
 # See class Molecule for the list of variables.
-crh_7e7o         = Molecule('crh',   7,7, [10,11,12,13,14,15, 19], init=1.60, ispin=5, ibasis='def2tzvpd')
-ch5_2e2o         = Molecule('ch5',   2,2, [29, 35],                init=1.50, iroots=1, ibasis='augccpvdz')
-co_10e8o         = Molecule('co',   10,8, [3,4,5,6,7, 8,9,10],     init=1.20, iroots=3, ibasis='augccpvdz',)
-h2co_6e6o        = Molecule('h2co',  6,6, [6,7,8,9,10,12],         init=1.20, iroots=2)
-butadiene_4e4o   = Molecule('butadiene', 4,4, [14,15,16,17],    ibasis='631g*', iroots=2)
-furan_6e5o       = Molecule('furan',     6,5, [12,17,18,19,20], ibasis='631g*', iroots=3)
-furan_6e5o_2     = Molecule('furan',     6,5, [12,17,18,19,20], ibasis='631g*', iroots=2)
-furan_6e5o_A1    = Molecule('furan',     6,5, [12,17,18,19,20], ibasis='631g*', iroots=3,isym='C2v', irep='A1')
-furan_6e5o_aug   = Molecule('furan',     6,5, [12,17,18,23,29], ibasis='aug-cc-pvdz', iroots=3)
-furan_6e5o_aug_A1= Molecule('furan',     6,5, [12,17,18,23,29], ibasis='aug-cc-pvdz', iroots=3,isym='C2v', irep='A1')
-furan_6e5o_aug_A1_2 = Molecule('furan',  6,5, [12,17,18,23,29], ibasis='aug-cc-pvdz', iroots=2,isym='C2v', irep='A1')
-furan_6e5o_aug_2 = Molecule('furan',     6,5, [12,17,18,23,29], ibasis='aug-cc-pvdz', iroots=2)
-h2co_6e6o        = Molecule('h2co_scan', 6,6, [6,7,8,9,10,12],  init=1.20, iroots=2)
-phenol_10e9o     = Molecule('phenol_scan_10e9o',     10,9, [19,20,23,24,25,26,31,33,34], init=1.3, iroots=3)
-phenol_12e11o    = Molecule('phenol_scan_12e11o',   12,11, [19,20,21,23,24,25,26,31,33,34,58], iroots=3)
-spiro_11e10o     = Molecule('spiro_11e10o','frames',11,10, [35,43,50,51,52,53, 55,76,87,100], iroots=2, icharge=1, ispin=1)
-furan_6e5o_2_shifted = Molecule('furan_shift', 6,5, [12,17,18,19,20], ibasis='631g*', iroots=2)
-furan_6e5o_2_rotated = Molecule('furan_rot',   6,5, [12,17,18,19,20], ibasis='631g*', iroots=2)
-furan_6e5o_2         = Molecule('furan',       6,5, [12,17,18,19,20], ibasis='631g*', iroots=2)
-
+crh_7e7o      = Molecule('crh',   7,7, [10,11,12,13,14,15, 19], init=1.60, ispin=5, ibasis='def2tzvpd')
+ch5_2e2o      = Molecule('ch5',   2,2, [29, 35],                init=1.50, iroots=1, ibasis='augccpvdz')
+co_10e8o      = Molecule('co',   10,8, [3,4,5,6,7, 8,9,10],     init=1.20, iroots=3, ibasis='augccpvdz',)
+h2co_6e6o     = Molecule('h2co',  6,6, [6,7,8,9,10,12],         init=1.20, iroots=2)
+butadiene_4e4o= Molecule('butadiene', 4,4, [14,15,16,17],    ibasis='631g*', iroots=2)
+spiro_11e10o  = Molecule('spiro',11,10, [35,43,50,51,52,53, 55,76,87,100], iroots=2, icharge=1, ispin=1)
+# scans
+h2co_6e6o     = Molecule('h2co_scan', 6,6, [6,7,8,9,10,12],  init=1.20, iroots=2)
+phenol_10e9o  = Molecule('phenol_scan_10e9o',     10,9, [19,20,23,24,25,26,31,33,34], init=1.3, iroots=3)
+phenol_12e11o = Molecule('phenol_scan_12e11o',   12,11, [19,20,21,23,24,25,26,31,33,34,58], iroots=3)
 # unit tests
 h2o_4e4o      = Molecule('h2o', 4,4, [4,5,8,9], iroots=3, grid=1, isym='c2v', irep='A1', ibasis='aug-cc-pVDZ')
 furancat_5e5o = Molecule('furancat', 5,5, [12,17,18,19,20], iroots=3, grid=1, icharge = 1, ispin =1, ibasis='sto-3g')
 furan_6e5o    = Molecule('furancat', 6,5, [12,17,18,19,20], iroots=3, grid=1, isym='C2v', irep ='A1', ibasis='sto-3g')
 
 #Select species for which the dipole moment curves will be constructed
-# species=[crh_7e7o]
-# species=[ch5_2e2o]
-# species=[co_10e8o]
 species=[phenol_12e11o]
-species=[furan_6e5o_2_shifted]
-species=[furan_6e5o_2]
-species=[furan_6e5o_2_rotated]
 species=[furancat_5e5o]
 species=[h2o_4e4o]
 species=[h2co_6e6o]
-
 
 # ---------------------- MAIN DRIVER OVER DISTANCES -------------------
 scan=False if len(bonds)==1 else True #Determine if multiple bonds are passed
