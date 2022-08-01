@@ -306,8 +306,8 @@ def fix_signs_of_final_states(x, si_in_ref, si_in_buf):
     return si_in_buf
 
 # ------------------ NUMERICAL DIPOLE MOMENTS ----------------------------
-def numer_run(dist, x, mol, mo_zero, ci_zero, ci0_zero, method, field, formula, ifunc, out, dip_cms, \
-    si_sa_zero, si_in_zero, ham_zero, ntdm, unit='Debye', origin='Charge_center'):
+def numer_run(dist, x, mol, mo_zero, ci_zero, ci0_zero, method, field, ifunc, out, dip_cms, \
+    si_sa_zero, si_in_zero, ham_zero, ntdm, origin='Charge_center'):
     '''
     Returns numeric transition dipole moment found by 
     differentiation of CMS model-space Hamiltonian 
@@ -326,9 +326,9 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, ci0_zero, method, field, formula, 
     mass_center = np.einsum('i,ij->j', mass, coords)/mass.sum()
     # mol.set_common_orig_(mass_center)
     mol.set_common_orig_(nuc_charge_center)
-    if unit.upper() == 'DEBYE':
+    if x.unit.upper() == 'DEBYE':
         fac = nist.AU2DEBYE
-    elif unit.upper() == 'AU':
+    elif x.unit.upper() == 'AU':
         fac = 1
     else:
         RuntimeError   
@@ -342,9 +342,9 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, ci0_zero, method, field, formula, 
     si_der  = np.zeros((len(field),3,x.iroots,x.iroots)) 
     for i, f in enumerate(field): # Over field strengths
         dip_num[i][0]=f #  first column is the field column 
-        if formula == "2-point":
+        if x.formula == "2-point":
             disp = [f, -f]
-        elif formula == "4-point":
+        elif x.formula == "4-point":
             disp = [2*f, f, -f, -2*f]
         si_in = np.zeros((len(disp),3,x.iroots,x.iroots)) #
         si_sa = np.zeros((len(disp),3,x.iroots,x.iroots)) #
@@ -451,7 +451,7 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, ci0_zero, method, field, formula, 
             #Get dH_PQ/dF derivative numerically        
             for p in range(x.iroots):
                 for q in range(x.iroots):
-                    if formula == "2-point":
+                    if x.formula == "2-point":
                         ham_der[i,j,p,q]= (ham[0,j,p,q]-ham[1,j,p,q])/(2*f)
                         si_der[i,j,p,q] = (si_in[0,j,p,q]-si_in[1,j,p,q])/(2*f)
         #Loop over i = fields
@@ -553,7 +553,7 @@ def init_guess(y, analyt, numer):
     return mo, ci
 
 #-------------Compute energies and dipoles for the given geometry-----------
-def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ntdm, unit="Debye", dmcFLAG=True):
+def get_dipole(x, field, numer, analyt, mo, ci, dist, ntdm, dmcFLAG=True):
     '''
     Evaluates energies and dipole moments along the bond contraction coordinate
     Ruturns analytical and numerical dipoles for a given geometry for each functional used 
@@ -565,11 +565,12 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ntdm, unit="Debye
                 verbose=4, basis=x.ibasis, symmetry=x.isym)
         
     #Determine origin
-    mass = mol.atom_mass_list()
+    mass    = mol.atom_mass_list()
     charges = mol.atom_charges()
-    coords = mol.atom_coords()
+    coords  = mol.atom_coords()
     nuc_charge_center = np.einsum('z,zx->x', charges, coords) / charges.sum()
     mass_center = np.einsum('i,ij->j', mass, coords)/mass.sum()
+    origin = "Charge_center" if x.icharge !=0 else "Coord_center"
     # mol.set_common_orig_(mass_center)
     
     weights=[1/x.iroots]*x.iroots
@@ -617,7 +618,6 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ntdm, unit="Debye
     analytic = [None]*len(x.ontop)
     en_dist  = [None]*len(x.ontop) # energy array indexed by functional
 
-    origin = "Charge_center" if x.icharge !=0 else "Coord_center"
 
     for k, ifunc in enumerate(x.ontop): # Over on-top functionals
 
@@ -657,7 +657,7 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ntdm, unit="Debye
                 for m in range(x.iroots):
                     for n in range(m):
                         shift=id_tdm*4
-                        tdm=mc.trans_moment(state=[n,m],unit=unit,origin=origin)
+                        tdm=mc.trans_moment(state=[n,m],unit=x.unit,origin=origin)
                         abs_cms = np.linalg.norm(tdm)
                         dip_cms[shift:shift+3] = tdm
                         dip_cms[shift+3] = abs_cms
@@ -713,9 +713,8 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ntdm, unit="Debye
                     ham_zero=mc.get_heff_pdft()
                     ci0 = mc.ci
 
-                dip_num = numer_run(dist, x, mol, mo, ci, ci0, method, \
-                    field, formula, ifunc, out, dip_cms, \
-                    si_sa_zero, si_in_zero, ham_zero, ntdm, unit=unit, origin = origin)
+                dip_num = numer_run(dist, x, mol, mo, ci, ci0, method, field, ifunc, \
+                    out, dip_cms, si_sa_zero, si_in_zero, ham_zero, ntdm, origin=origin)
         else:
             print("Numerical dipole is ignored")
             dip_num = np.zeros((len(field), 4))
@@ -725,12 +724,12 @@ def get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ntdm, unit="Debye
         en_dist [k] = [dist, e_casscf, e_pdft] + e_states
     return numeric, analytic, en_dist, mo, ci
 
-def run(x, field, formula, numer, analyt, mo, ci, dist, scan, dip_scan, en_scan, ntdm, unit='Debye', dmcFLAG=True):
+def run(x, field, numer, analyt, mo, ci, dist, scan, dip_scan, en_scan, ntdm, dmcFLAG=True):
     '''
     Get dipoles & energies for a fixed distance
     '''
     numeric, analytic, en_dist, mo, ci = \
-        get_dipole(x, field, formula, numer, analyt, mo, ci, dist, ntdm, unit=unit, dmcFLAG=dmcFLAG)
+        get_dipole(x, field, numer, analyt, mo, ci, dist, ntdm, dmcFLAG=dmcFLAG)
 
     # Accumulate analytic dipole moments and energies
     for k, ifunc in enumerate(x.ontop):
@@ -760,6 +759,7 @@ from dataclass_property import dataclass, field_property
 from typing import List
 @dataclass
 class Molecule:
+    ''' Differentiation can be done either by 2-point or 4-point formula'''
     iname   : str
     geom    : str
     nel     : int
@@ -774,6 +774,8 @@ class Molecule:
     ispin   : int = 0
     ibasis  : str = "julccpvdz"
     grid    : int = 9
+    formula : str = "2-point"
+    unit    : str = 'Debye'
 
     @field_property
     def ontop(self) -> List[str]:
@@ -813,9 +815,9 @@ inc=0.02
 
 # Set field range
 field = np.linspace(1e-3, 1e-2, num=2)
-field = np.linspace(1e-3, 1e-2, num=10)
+# field = np.linspace(1e-3, 1e-2, num=10)
 # field = np.linspace(5e-3, 4e-3, num=2)
-field = np.linspace(5e-4, 5e-3, endpoint=True, num=46)
+# field = np.linspace(5e-4, 5e-3, endpoint=True, num=46)
 # field = np.array([0.0009,0.001,0.002])
 # inc= 1e-3
 # field = np.arange(inc, 1e-2, inc)
@@ -825,23 +827,17 @@ conv_tol_grad= 1e-6
 thresh = [conv_tol]+[conv_tol_grad]
 max_cyc = 100
 
-# Set differentiation technique
-formula= "2-point"
-# formula = "4-point"
-
 # Set how dipole moments should be computed
 numer  = []
 analyt = []
-# numer = ['CMS-PDFT']
+numer = ['CMS-PDFT']
 # numer = ['SA-PDFT']
 analyt = ['CMS-PDFT']
 # analyt = ['CMS-PDFT','SA-CASSCF']
 # analyt = ['SA-CASSCF']
 # analyt = ['SA-PDFT']
 dmcFLAG=False 
-# dmcFLAG=True
-unit = 'Debye'
-unit = 'AU'
+dmcFLAG=True
 
 # See class Molecule for the list of variables.
 butadiene_4e4o   = Molecule('butadiene_4e4o',geom_butadiene,  4,4, [14,15,16,17],          ibasis='631g*', iroots=2)
@@ -898,16 +894,12 @@ species=[furan_6e5o]
 # species=[furancat_5e5o_2]
 # species=[furancat_5e5o_3]
 species=[furancat_5e5o_2sym]
-# h2co_6e6o.ontop = ['tBLYP','tPBE']
-h2o_4e4o        = Molecule('h2o_4e4o', geom_h2o, 4,4, [4,5,8,9], ontop=['tBLYP','tPBE'], iroots=3, grid=1, isym='c2v', irep='A1', ibasis='aug-cc-pVDZ')
-print('AOL test ontop',h2o_4e4o.ontop )
 species=[h2o_4e4o]
 
 
 # ---------------------- MAIN DRIVER OVER DISTANCES -------------------
 scan=False if len(bonds)==1 else True #Determine if multiple bonds are passed
 for x in species:
-    print('AOL',x.ontop)
     dip_scan = [ [] for _ in range(len(x.ontop)) ]
     en_scan  = [ [] for _ in range(len(x.ontop)) ] # Empty lists per functional
     # Get MOs before running a scan
@@ -922,7 +914,7 @@ for x in species:
         x.geom=template.format(dist)
 
         # MOs and CI vectors are taken from the previous point
-        mo, ci = run(x, field, formula, numer, analyt, mo, ci, dist, scan, dip_scan, en_scan, ntdm, unit=unit, dmcFLAG=dmcFLAG)
+        mo, ci = run(x, field, numer, analyt, mo, ci, dist, scan, dip_scan, en_scan, ntdm, dmcFLAG=dmcFLAG)
         
         dip_head = ['Distance','CASSCF','MC-PDFT']
         for j in range(x.iroots):
