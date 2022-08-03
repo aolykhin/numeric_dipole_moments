@@ -264,7 +264,7 @@ def get_dipole(x, field, numer, analyt, mo, ci, dist, dmcFLAG=True):
     #MC-PDFT step
     numeric  = [None]*len(x.ontop)
     analytic = [None]*len(x.ontop)
-    en_dist  = [None]*len(x.ontop) # energy array indexed by functional
+    energy   = [None]*len(x.ontop) # energy array indexed by functional
 
     for k, ifunc in enumerate(x.ontop): # Over on-top functionals
 
@@ -370,62 +370,88 @@ def get_dipole(x, field, numer, analyt, mo, ci, dist, dmcFLAG=True):
    
         analytic[k] = [dist, abs_cas, abs_pdft] + dip_cms
         numeric [k] = dip_num
-        en_dist [k] = [dist, e_casscf, e_pdft] + e_states
-    return numeric, analytic, en_dist, mo, ci
+        energy  [k] = [dist, e_casscf, e_pdft] + e_states
+    return numeric, analytic, energy, mo, ci
 
 # Get dipoles & energies for a fixed distance
-def run(x, field, numer, analyt, mo, ci, dist, scan, dip_scan, en_scan, dmcFLAG=True):
-    numeric, analytic, en_dist, mo, ci = get_dipole(x, field, numer, analyt, mo, ci, dist, dmcFLAG=dmcFLAG)
+def run(x, field, numer, analyt, mo, ci, dist, scan, dip_scan, num_scan, en_scan, dmcFLAG=True):
+    numeric, analytic, energy, mo, ci = get_dipole(x, field, numer, analyt, mo, ci, dist, dmcFLAG=dmcFLAG)
     '''
     Get dipoles & energies for a fixed distance
     '''
+    
     # Accumulate analytic dipole moments and energies
-    for k, ifunc in enumerate(x.ontop):
-        out = 'dmc_'+x.iname+'_'+ifunc+'.txt'
-        dip_scan[k].append(analytic[k]) 
-        en_scan[k].append(en_dist[k]) 
+    # for k, ifunc in enumerate(x.ontop):
+    #     # out = 'dmc_'+x.iname+'_'+ifunc+'.txt'
+    #     dip_scan[k].append(analytic[k]) 
+    #     en_scan[k].append(energy[k]) 
+    #     num_scan[k].append(numeric[k]) 
 
-        # Print & save numeric dipole moments
-        if numer:
-            for method in numer:
-                print(f"Numeric dipole at {cs(dist)} ang found with {cs(method)} ({cs(ifunc)})")
-                header=['Field']
-                for i in range(x.iroots): 
-                    header+=['X', 'Y', 'Z', f'ABS ({i+1})'] 
-                sigfig = (".4f",)+(".5f",)*4*x.iroots
-                numer_point = pdtabulate(numeric[k], header, sigfig)
-                print(numer_point)
-                action='w' if scan==False else 'a'
-                with open(out, action) as f:
-                    f.write(f"Numeric dipole at {dist:.3f} ang found with {method} ({ifunc})\n")
-                    f.write(numer_point)
-                    f.write('\n')
-    return mo, ci
+        # # Print & save numeric dipole moments
+        # if numer:
+        #     save_data(x, analyt, numer, dataname='Numeric PDMs', data=numeric, dist)
+        #     for method in numer:
+        #         print(f"Numeric dipole at {cs(dist)} ang found with {cs(method)} ({cs(ifunc)})")
+        #         header=['Field']
+        #         for i in range(x.iroots): 
+        #             header+=['X', 'Y', 'Z', f'ABS ({i+1})'] 
+        #         sigfig = (".4f",)+(".5f",)*4*x.iroots
+        #         numer_point = pdtabulate(numeric[k], header, sigfig)
+        #         print(numer_point)
+        #         action='w' if scan==False else 'a'
+        #         with open(out, action) as f:
+        #             f.write(f"Numeric dipole at {dist:.3f} ang found with {method} ({ifunc})\n")
+        #             f.write(numer_point)
+        #             f.write('\n')
+    return numeric, analytic, energy, mo, ci
 
-def save_data(x, analyt, dataname=None, data=None):
-    if data == None or dataname == None: raise ValueError('data/datname was not provided')
+def save_data(x, analyt, numer, dataname=None, data=None, dist=None):
+    ''' 
+    ENERGIES and ANALYTIC PDMS is a list: [bond [functional [values] ] ]
+    NUMERIC PDMS               is a list: [functional [filed [values] ] ]
+    where values could be arrays of energies, permanent, or transition dipole moments
+    '''
+    if data == None or dataname == None: 
+        raise ValueError('data/datname was not provided')
+
+    if dataname.upper() == 'ENERGIES' or dataname.upper() =='ANALYTIC PDMS':
+        data = list(zip(*data)) #flip dimensions over bonds with functionals
+
+    #set up headers and significant figures
     head=['Distance', 'CASSCF', 'MC-PDFT']
     if dataname.upper() == 'ENERGIES':
-        sig = (".2f",)+(".8f",)*(2+x.iroots)
+        sig = (".2f",)+(".8f",)+(".8f",) + (".8f",)*(x.iroots)
         for method in analyt:
             for j in range(x.iroots): 
                 head.extend([f'{method} ({cs(j+1)})'])
     elif dataname.upper() == 'ANALYTIC PDMS':
-        sig = (".2f",)+(".5f",)*(2+4*x.iroots)
+        sig = (".2f",)+(".5f",)+(".5f",) + (".5f",)*(4*x.iroots)
         for j in range(x.iroots):
             head.extend(['X', 'Y', 'Z', f'ABS ({cs(j+1)})'])
-
+    elif dataname.upper() == 'NUMERIC PDMS':
+        for method in numer:
+            head = ['Field']
+            for i in range(x.iroots): 
+                head.extend(['X', 'Y', 'Z', f'ABS ({i+1})']) 
+            sig = (".4f",) + (".5f",)*4*x.iroots
+    
     for k, ifunc in enumerate(x.ontop):
-        table = pdtabulate(data[k], head, sig)
-        print(f"{dataname} found with {cs(ifunc)}")
+        table = pdtabulate(list(data[k]), head, sig)
+        if dataname.upper() == 'NUMERIC PDMS':
+            message = f' \n{dataname} found with {cs(method)}:{cs(ifunc)} at point {dist:.3f}\n'
+        else:
+            message = f"{dataname} found with {cs(ifunc)}"
+        print(message)
         print(table)
 
-        out = x.iname+'_'+ifunc+'.txt'
-        action='a' if numer else 'w'
+        out = 'results_'+x.iname+'_'+ifunc+'.txt'
+        action='a' 
+        # action='a' if numer else 'w'
         with open(out, action) as f:
-            f.write(f"The on-top functional is {ifunc} \n")
-            f.write(table)
-            f.write('\n')
+            f.write(message)
+            f.write(f'{table}\n')
+            # f.write(table)
+            # f.write('\n')
 
 from dataclasses import dataclass, field
 from typing import List
@@ -479,6 +505,7 @@ field = np.linspace(1e-5, 1e-2, num=30)
 field = np.linspace(2e-3, 1e-2, endpoint=True, num=81)
 field = np.linspace(5e-4, 5e-3, endpoint=True, num=46)
 field = np.linspace(1e-3, 1e-2, num=2)
+field = np.linspace(1e-3, 1e-2, num=1)
 # inc= 1e-3
 # field = np.arange(inc, 1e-2, inc)
 # thresh = 5e-9
@@ -491,7 +518,7 @@ max_cyc = 100
 numer  = []
 analyt = []
 # numer = ['SS-PDFT']
-# numer = ['CMS-PDFT']
+numer = ['CMS-PDFT']
 # numer = ['SA-PDFT']
 # analyt = ['MC-PDFT','CMS-PDFT']
 analyt = ['CMS-PDFT']
@@ -529,18 +556,33 @@ for x in species:
         xyz = open(str(dist).zfill(2)+'.xyz').read()
     else:
         xyz = open('geom_'+x.iname+'.xyz').read()
-    dip_scan = [ [] for _ in range(len(x.ontop)) ]
-    en_scan  = [ [] for _ in range(len(x.ontop)) ] # Empty lists per functional
+    # dip_scan = [ [] for _ in range(len(x.ontop)) ]
+    # en_scan  = [ [] for _ in range(len(x.ontop)) ] # Empty lists per functional
+
+    # dip_scan = [ [] for _ in range(len(bonds)) ]
+    # num_scan = [ [] for _ in range(len(bonds)) ]
+    # en_scan  = [ [] for _ in range(len(bonds)) ]
+
+    dip_scan = []
+    num_scan = []
+    en_scan  = []
     # Get MOs before running a scan
     x.geom=xyz.format(x.init)
     mo, ci = init_guess(x, analyt, numer) if x !=spiro_11e10o else 0 #spiro MOs should be provided manually
 
     # MOs and CI vectors are taken from the previous point
-    for i, dist in enumerate(bonds, start=0):
+    bonds = np.sort(bonds)[::-1] #always start from longer bonds
+    for i, dist in enumerate(bonds):
         x.geom = xyz.format(dist)
-        mo, ci = run(x, field, numer, analyt, mo, ci, dist, scan, dip_scan, en_scan, dmcFLAG=dmcFLAG)
+        numeric, analytic, energy, mo, ci = run(x, field, numer, analyt, mo, ci, dist, scan, dip_scan, num_scan, en_scan, dmcFLAG=dmcFLAG)
+        dip_scan.append(analytic) 
+        en_scan.append(energy) 
+        num_scan.append(numeric)
+        # en_scan = list(zip(*en_scan))
+        # dip_scan = list(zip(*en_scan))
+        # num_scan = list(zip(*en_scan))
+        if numer:  save_data(x, analyt, numer, dataname='Numeric PDMs', data=num_scan[i], dist=dist)
 
-        save_data(x, analyt, dataname='Energies', data=en_scan)
-        if analyt: save_data(x, analyt, dataname='Analytic PDMs', data=dip_scan)
-        
+    save_data(x, analyt, numer, dataname='Energies', data=en_scan)
+    if analyt: save_data(x, analyt, numer, dataname='Analytic PDMs', data=dip_scan)
         
