@@ -417,6 +417,11 @@ def save_data(x, analyt, numer, dataname=None, data=None, dist=None):
             f.write(message)
             f.write(f'{table}\n')
 
+def is_geom_scan(geom,bonds):
+    if len(bonds) > 1 and geom.find("{}") == -1:
+        raise ValueError('Provided molecular geometry is not suitable \
+            for PES scan; please add {} to the .xyz file')
+
 from dataclasses import dataclass, field
 from typing import List
 @dataclass
@@ -449,14 +454,10 @@ class Molecule:
 # Set the bond range
 bonds = np.array([1.0])
 bonds = np.array([1.0, 1.1])
-# bonds = np.array([])
 # bonds = np.array([2.1])
 inc=0.1
-# inc=0.02
-# bonds = np.arange(2.0,2.2+inc,inc) # for energy curves
 # bonds = np.array([1.6,2.0,2.1,2.2,2.3,2.4,2.5]) # for energy curves
 # bonds = np.arange(1.0,3.0+inc,inc) # for energy curves
-# bonds = np.arange(3.0,0.9-inc,-inc) # for energy curves
 
 # External XYZ frames
 # bonds = np.arange(0,31,1) 
@@ -470,9 +471,6 @@ field = np.linspace(2e-3, 1e-2, endpoint=True, num=81)
 field = np.linspace(5e-4, 5e-3, endpoint=True, num=46)
 field = np.linspace(1e-3, 1e-2, num=2)
 field = np.linspace(1e-3, 1e-2, num=1)
-# inc= 1e-3
-# field = np.arange(inc, 1e-2, inc)
-# thresh = 5e-9
 conv_tol = 1e-11
 conv_tol_grad= 1e-6
 thresh = [conv_tol]+[conv_tol_grad]
@@ -507,10 +505,10 @@ furancat_5e5o = Molecule('furancat', 5,5, [12,17,18,19,20], iroots=3, grid=1, ic
 furan_6e5o    = Molecule('furancat', 6,5, [12,17,18,19,20], iroots=3, grid=1, isym='C2v', irep ='A1', ibasis='sto-3g')
 
 #Select species for which the dipole moment curves will be constructed
-species=[phenol_12e11o]
-species=[furancat_5e5o]
-species=[h2co_6e6o]
-species=[h2o_4e4o]
+species = [phenol_12e11o]
+species = [furancat_5e5o]
+species = [h2o_4e4o]
+species = [h2co_6e6o]
 
 # ---------------------- MAIN DRIVER OVER DISTANCES -------------------
 for x in species:
@@ -518,11 +516,12 @@ for x in species:
         xyz = open(str(dist).zfill(2)+'.xyz').read()
     else:
         xyz = open('geom_'+x.iname+'.xyz').read()
+    is_geom_scan(xyz,bonds)
+    x.geom = xyz.format(x.init)
+    # Get MOs before running a scan
     dip_scan = []
     num_scan = []
     en_scan  = []
-    # Get MOs before running a scan
-    x.geom = xyz.format(x.init)
     mo, ci = init_guess(x, analyt, numer) if x !=spiro_11e10o else 0 #spiro MOs should be provided manually
 
     # MOs and CI vectors are taken from the previous point
