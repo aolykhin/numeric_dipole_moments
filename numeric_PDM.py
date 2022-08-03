@@ -158,118 +158,73 @@ def num_conv_plot(x, field, dip_num, dist, method, dip_cms):
         plt.savefig('fig_'+x.iname+'_'+f"{dist:.2f}"+'_st_'+str(m+1)+'_'+method+'.png')
     return
 
-def init_guess(y, analyt, numer):
+def casscf(x, analyt, numer, dist=None, init=None, mo=None, ci=None):
     ''' 
     Runs preliminary state-specific or state-averaged CASSCF 
     at a given geometry and returns molecular orbitals and CI vectors
     '''
-    out = y.iname+'_cas'
-    xyz = open('00.xyz').read() if y.geom == 'frames' else y.geom
-    mol = gto.M(atom=xyz, charge=y.icharge, spin=y.ispin,
-                output=y.iname+'_init.log', verbose=4, basis=y.ibasis, symmetry=y.isym)
+    if init:
+        out = x.iname+'_init'
+    else:
+        out = x.iname+'_'+f"{dist:.2f}"
+        
+    mol = gto.M(atom=x.geom, charge=x.icharge, spin=x.ispin,
+                output=out+'.log', verbose=4, basis=x.ibasis, symmetry=x.isym)
     weights=[1/x.iroots]*x.iroots
     mf = scf.RHF(mol).run()
-    molden.from_mo(mol,'orb_'+y.iname+'_init_hf.molden', mf.mo_coeff)
-
-    fname = 'orb_'+ out
-    cas = mcscf.CASSCF(mf, y.norb, y.nel)
-    cas.chkfile = fname
-    cas.fcisolver.wfnsym = y.irep
-    cas.fix_spin_(ss=y.ispin) 
+    mc = mcscf.CASSCF(mf, x.norb, x.nel)
+    mc.fcisolver.wfnsym = x.irep
+    mc.fix_spin_(ss=x.ispin) 
+    mc.chkfile = 'orb_'+ out
     if thresh: 
-        cas.conv_tol = conv_tol 
-        cas.conv_tol_grad = conv_tol_grad 
+        mc.conv_tol = conv_tol 
+        mc.conv_tol_grad = conv_tol_grad 
 
-    print(f'Guess MOs from HF at {y.init:3.5f} ang')
-    mo = mcscf.sort_mo(cas, mf.mo_coeff, y.cas_list)
+    if init:
+        print(f'Guess MOs from HF at {x.init:3.5f} ang')
+        mo = mcscf.sort_mo(mc, mf.mo_coeff, x.cas_list)
+        molden.from_mo(mol,'orb_'+out+'_hf.molden', mf.mo_coeff)
 
     if 'MC-PDFT' in (analyt + numer):
-        # cas.fcisolver.wfnsym = x.irep
-        # cas.fix_spin_(ss=x.ispin) 
-        cas.kernel(mo)
-        mo_ss=cas.mo_coeff
+        mc.fcisolver.wfnsym = x.irep
+        mc.fix_spin_(ss=x.ispin) 
+        e_casscf = mc.kernel(mo,ci)[0]
+        mc.analyze()
+        molden.from_mo(mol, out+'_ss.molden', mc.mo_coeff)
+        # mo_ss=mc.mo_coeff
     sa_required_methods=['CMS-PDFT','SA-PDFT','SA-CASSCF']
     if any(x in analyt+numer for x in sa_required_methods):
-        cas.state_average_(weights)
-        cas.fcisolver.wfnsym = y.irep
-        cas.fix_spin_(ss=y.ispin) 
-        cas.kernel(mo)
-    cas.analyze()
-    mo = cas.mo_coeff
-    ci = cas.ci
-    molden.from_mo(mol, out+'_init_cas.molden', cas.mo_coeff)
-    return mo, ci
+        mc.state_average_(weights)
+        mc.fcisolver.wfnsym = x.irep
+        mc.fix_spin_(ss=x.ispin) 
+        e_casscf = mc.kernel(mo,ci)[0]
+        mc.analyze()
+        molden.from_mo(mol, out+'_sa.molden', mc.mo_coeff)
+        # mo_sa = mc.mo_coeff
+        
+    mo = mc.mo_coeff
+    ci = mc.ci
+    if init: molden.from_mo(mol, out+'_cas.molden', mc.mo_coeff)
+    return mol, mf, mo, ci, e_casscf
 
 #-------------Compute energies and dipoles for the given geometry-----------
-def get_dipole(x, field, numer, analyt, mo, ci, dist, dmcFLAG=True):
+def get_dipole(x, field, numer, analyt, mol, mf, mo, ci, e_casscf, dist, dmcFLAG=True):
     '''
     Evaluates energies and dipole moments along the bond contraction coordinate
     Ruturns analytical and numerical dipoles for a given geometry for each functional used 
-    Also returns the MOs and CI vectors for a given geometry 
     '''
-    # 'frames'
-    out = x.iname+'_'+f"{dist:.2f}"
-    # xyz = open(str(dist).zfill(2)+'.xyz').read() if x.iname == 'spiro' else x.iname+'.xyz'
-    mol = gto.M(atom=x.geom,charge=x.icharge,spin=x.ispin,output=out+'.log',
-                verbose=4, basis=x.ibasis, symmetry=x.isym)
-    
-    #Determine origin
-    mass    = mol.atom_mass_list()
-    charges = mol.atom_charges()
-    coords  = mol.atom_coords()
-    nuc_charge_center = np.einsum('z,zx->x', charges, coords) / charges.sum()
-    mass_center = np.einsum('i,ij->j', mass, coords)/mass.sum()
-    origin = "Charge_center" if x.icharge !=0 else "Coord_center" 
-    # mol.set_common_orig_(mass_center)
-
     weights=[1/x.iroots]*x.iroots
-    
-    #HF step
-    mf = scf.RHF(mol).set(max_cycle = 1).run()
 
-    #SS/SA-CASSCF step
-    fname = 'orb_'+ out #file with orbitals
-    cas = mcscf.CASSCF(mf, x.norb, x.nel)
-    # cas.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
-    cas.chkfile = fname
-    if thresh: 
-        cas.conv_tol = conv_tol
-        cas.conv_tol_grad = conv_tol_grad
-    #! may be redundant if geometry is the same as ini 
-    # print('Project orbs from the previous point')
-    # mo = mcscf.project_init_guess(cas, mo)
-
-    if 'MC-PDFT' in (analyt + numer):
-        cas.fcisolver.wfnsym = x.irep
-        cas.fix_spin_(ss=x.ispin) 
-        e_casscf = cas.kernel(mo,ci)[0]
-        mo_ss=cas.mo_coeff
-        cas.analyze()
-        molden.from_mo(mol, out+'_ss.molden', cas.mo_coeff)
-
-    sa_required_methods=['CMS-PDFT','SA-PDFT','SA-CASSCF']
-    if any(x in analyt+numer for x in sa_required_methods):
-        cas.state_average_(weights)
-        cas.fcisolver.wfnsym = x.irep
-        cas.fix_spin_(ss=x.ispin)
-        e_casscf = cas.kernel(mo,ci)[0]
-        mo_sa = cas.mo_coeff
-        ci = cas.ci
-        cas.analyze()
-        molden.from_mo(mol, out+'_sa.molden', cas.mo_coeff)
-    mo=cas.mo_coeff 
-    ci=cas.ci 
-    
     #MC-PDFT step
     numeric  = [None]*len(x.ontop)
     analytic = [None]*len(x.ontop)
-    energy   = [None]*len(x.ontop) # energy array indexed by functional
+    energy   = [None]*len(x.ontop)
 
+    origin = "Charge_center" if x.icharge !=0 else "Coord_center" 
     for k, ifunc in enumerate(x.ontop): # Over on-top functionals
-
-        mol.output=x.iname+'_'+ifunc+'_'+f"{dist:.2f}"+'.log'
+        out = x.iname+'_'+ifunc+'_'+f"{dist:.2f}"
+        mol.output = out+'.log'
         mol.build()
-        #Initialize to zero
         dip_cms  = np.zeros(4*x.iroots).tolist()
         abs_pdft = 0
         abs_cas  = 0
@@ -284,7 +239,6 @@ def get_dipole(x, field, numer, analyt, mo, ci, dist, dmcFLAG=True):
                 mc.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
                 mc.fcisolver.wfnsym = x.irep
                 # mc.fix_spin_(ss=x.ispin)
-                mc.chkfile = fname
                 mc.max_cycle_macro = 600
 
                 if method == 'MC-PDFT': 
@@ -369,7 +323,7 @@ def get_dipole(x, field, numer, analyt, mo, ci, dist, dmcFLAG=True):
         analytic[k] = [dist, abs_cas, abs_pdft] + dip_cms
         numeric [k] = dip_num
         energy  [k] = [dist, e_casscf, e_pdft] + e_states
-    return numeric, analytic, energy, mo, ci
+    return numeric, analytic, energy
 
 def save_data(x, analyt, numer, dataname=None, data=None, dist=None):
     ''' 
@@ -497,6 +451,7 @@ butadiene_4e4o= Molecule('butadiene', 4,4, [14,15,16,17],    ibasis='631g*', iro
 spiro_11e10o  = Molecule('spiro',11,10, [35,43,50,51,52,53, 55,76,87,100], iroots=2, icharge=1, ispin=1)
 # scans
 h2co_6e6o     = Molecule('h2co_scan', 6,6, [6,7,8,9,10,12],  init=1.20, iroots=2)
+h2o_4e4o_scan = Molecule('h2o_scan', 4,4, [4,5,8,9], iroots=3, grid=1, ibasis='aug-cc-pVDZ')
 phenol_10e9o  = Molecule('phenol_scan_10e9o',     10,9, [19,20,23,24,25,26,31,33,34], init=1.3, iroots=3)
 phenol_12e11o = Molecule('phenol_scan_12e11o',   12,11, [19,20,21,23,24,25,26,31,33,34,58], iroots=3)
 # unit tests
@@ -509,6 +464,7 @@ species = [phenol_12e11o]
 species = [furancat_5e5o]
 species = [h2o_4e4o]
 species = [h2co_6e6o]
+species = [h2o_4e4o_scan]
 
 # ---------------------- MAIN DRIVER OVER DISTANCES -------------------
 for x in species:
@@ -522,13 +478,13 @@ for x in species:
     dip_scan = []
     num_scan = []
     en_scan  = []
-    mo, ci = init_guess(x, analyt, numer) if x !=spiro_11e10o else 0 #spiro MOs should be provided manually
-
+    mol, mf, mo, ci, e_casscf = casscf(x, analyt, numer, init=x.init) if x !=spiro_11e10o else 0 #spiro MOs should be provided manually
     # MOs and CI vectors are taken from the previous point
     bonds = np.sort(bonds)[::-1] #always start from longer bonds
     for i, dist in enumerate(bonds):
         x.geom = xyz.format(dist)
-        numeric, analytic, energy, mo, ci = get_dipole(x, field, numer, analyt, mo, ci, dist, dmcFLAG=dmcFLAG)
+        mol, mf, mo, ci, e_casscf = casscf(x, analyt, numer, dist=dist, mo=mo, ci=ci) if x !=spiro_11e10o else 0 
+        numeric, analytic, energy = get_dipole(x, field, numer, analyt, mol, mf, mo, ci, e_casscf, dist, dmcFLAG=True)
         dip_scan.append(analytic) 
         en_scan.append(energy) 
         num_scan.append(numeric)
