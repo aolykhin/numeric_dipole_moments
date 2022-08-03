@@ -72,8 +72,7 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, ifunc, out, dip_cms
                 mc.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
                 mc.fcisolver.wfnsym = x.irep
                 # mc.fix_spin_(ss=x.ispin)
-                # mc.natorb = True
-                print('j=%s and k=%s' %(j,k))
+                # print('j=%s and k=%s' %(j,k))
                 if i==0: #First field starts with zero-field MOs
                     mc.max_cycle_macro = 600
                     mo=mo_zero 
@@ -115,10 +114,10 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, ifunc, out, dip_cms
             for m in range(x.iroots): # Over states
                 shift=m*4 # shift to the next state by 4m columns (x,y,z,mu)
                 if x.formula == "2-point":
-                    print('Energy diff',-e[0][m]+e[1][m])
+                    # print('Energy diff',-e[0][m]+e[1][m])
                     dip_num[i,1+j+shift] = (-1)*fac*(-e[0][m]+e[1][m])/(2*f)
                 elif x.formula == "4-point":
-                    print('Energy diff',e[0][m]-8*e[1][m]+8*e[2][m]-e[3][m])
+                    # print('Energy diff',e[0][m]-8*e[1][m]+8*e[2][m]-e[3][m])
                     dip_num[i,1+j+shift] = (-1)*fac*(e[0][m]-8*e[1][m]+8*e[2][m]-e[3][m])/(12*f)
         
         # Get absolute dipole moment    
@@ -351,7 +350,6 @@ def get_dipole(x, field, numer, analyt, mo, ci, dist, dmcFLAG=True):
                         print("Analytic SA-PDFT Dipole is ignored")
                         dip_cms = np.zeros(4*x.iroots).tolist()
 
-       
         # ---------------- Numerical Dipoles ---------------------------
         #---------------------------------------------------------------
         if numer:
@@ -371,38 +369,6 @@ def get_dipole(x, field, numer, analyt, mo, ci, dist, dmcFLAG=True):
         analytic[k] = [dist, abs_cas, abs_pdft] + dip_cms
         numeric [k] = dip_num
         energy  [k] = [dist, e_casscf, e_pdft] + e_states
-    return numeric, analytic, energy, mo, ci
-
-# Get dipoles & energies for a fixed distance
-def run(x, field, numer, analyt, mo, ci, dist, scan, dip_scan, num_scan, en_scan, dmcFLAG=True):
-    numeric, analytic, energy, mo, ci = get_dipole(x, field, numer, analyt, mo, ci, dist, dmcFLAG=dmcFLAG)
-    '''
-    Get dipoles & energies for a fixed distance
-    '''
-    
-    # Accumulate analytic dipole moments and energies
-    # for k, ifunc in enumerate(x.ontop):
-    #     # out = 'dmc_'+x.iname+'_'+ifunc+'.txt'
-    #     dip_scan[k].append(analytic[k]) 
-    #     en_scan[k].append(energy[k]) 
-    #     num_scan[k].append(numeric[k]) 
-
-        # # Print & save numeric dipole moments
-        # if numer:
-        #     save_data(x, analyt, numer, dataname='Numeric PDMs', data=numeric, dist)
-        #     for method in numer:
-        #         print(f"Numeric dipole at {cs(dist)} ang found with {cs(method)} ({cs(ifunc)})")
-        #         header=['Field']
-        #         for i in range(x.iroots): 
-        #             header+=['X', 'Y', 'Z', f'ABS ({i+1})'] 
-        #         sigfig = (".4f",)+(".5f",)*4*x.iroots
-        #         numer_point = pdtabulate(numeric[k], header, sigfig)
-        #         print(numer_point)
-        #         action='w' if scan==False else 'a'
-        #         with open(out, action) as f:
-        #             f.write(f"Numeric dipole at {dist:.3f} ang found with {method} ({ifunc})\n")
-        #             f.write(numer_point)
-        #             f.write('\n')
     return numeric, analytic, energy, mo, ci
 
 def save_data(x, analyt, numer, dataname=None, data=None, dist=None):
@@ -450,8 +416,6 @@ def save_data(x, analyt, numer, dataname=None, data=None, dist=None):
         with open(out, action) as f:
             f.write(message)
             f.write(f'{table}\n')
-            # f.write(table)
-            # f.write('\n')
 
 from dataclasses import dataclass, field
 from typing import List
@@ -549,39 +513,27 @@ species=[h2co_6e6o]
 species=[h2o_4e4o]
 
 # ---------------------- MAIN DRIVER OVER DISTANCES -------------------
-scan=False if len(bonds)==1 else True #Determine if multiple bonds are passed
-
 for x in species:
     if x.iname == 'spiro':
         xyz = open(str(dist).zfill(2)+'.xyz').read()
     else:
         xyz = open('geom_'+x.iname+'.xyz').read()
-    # dip_scan = [ [] for _ in range(len(x.ontop)) ]
-    # en_scan  = [ [] for _ in range(len(x.ontop)) ] # Empty lists per functional
-
-    # dip_scan = [ [] for _ in range(len(bonds)) ]
-    # num_scan = [ [] for _ in range(len(bonds)) ]
-    # en_scan  = [ [] for _ in range(len(bonds)) ]
-
     dip_scan = []
     num_scan = []
     en_scan  = []
     # Get MOs before running a scan
-    x.geom=xyz.format(x.init)
+    x.geom = xyz.format(x.init)
     mo, ci = init_guess(x, analyt, numer) if x !=spiro_11e10o else 0 #spiro MOs should be provided manually
 
     # MOs and CI vectors are taken from the previous point
     bonds = np.sort(bonds)[::-1] #always start from longer bonds
     for i, dist in enumerate(bonds):
         x.geom = xyz.format(dist)
-        numeric, analytic, energy, mo, ci = run(x, field, numer, analyt, mo, ci, dist, scan, dip_scan, num_scan, en_scan, dmcFLAG=dmcFLAG)
+        numeric, analytic, energy, mo, ci = get_dipole(x, field, numer, analyt, mo, ci, dist, dmcFLAG=dmcFLAG)
         dip_scan.append(analytic) 
         en_scan.append(energy) 
         num_scan.append(numeric)
-        # en_scan = list(zip(*en_scan))
-        # dip_scan = list(zip(*en_scan))
-        # num_scan = list(zip(*en_scan))
-        if numer:  save_data(x, analyt, numer, dataname='Numeric PDMs', data=num_scan[i], dist=dist)
+        if numer: save_data(x, analyt, numer, dataname='Numeric PDMs', data=num_scan[i], dist=dist)
 
     save_data(x, analyt, numer, dataname='Energies', data=en_scan)
     if analyt: save_data(x, analyt, numer, dataname='Analytic PDMs', data=dip_scan)
