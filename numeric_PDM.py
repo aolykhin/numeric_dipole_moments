@@ -402,6 +402,31 @@ def run(x, field, numer, analyt, mo, ci, dist, scan, dip_scan, en_scan, dmcFLAG=
                     f.write('\n')
     return mo, ci
 
+def save_data(x, analyt, dataname=None, data=None):
+    if data == None or dataname == None: raise ValueError('data/datname was not provided')
+    head=['Distance', 'CASSCF', 'MC-PDFT']
+    if dataname.upper() == 'ENERGIES':
+        sig = (".2f",)+(".8f",)*(2+x.iroots)
+        for method in analyt:
+            for j in range(x.iroots): 
+                head.extend([f'{method} ({cs(j+1)})'])
+    elif dataname.upper() == 'ANALYTIC PDMS':
+        sig = (".2f",)+(".5f",)*(2+4*x.iroots)
+        for j in range(x.iroots):
+            head.extend(['X', 'Y', 'Z', f'ABS ({cs(j+1)})'])
+
+    for k, ifunc in enumerate(x.ontop):
+        table = pdtabulate(data[k], head, sig)
+        print(f"{dataname} found with {cs(ifunc)}")
+        print(table)
+
+        out = x.iname+'_'+ifunc+'.txt'
+        action='a' if numer else 'w'
+        with open(out, action) as f:
+            f.write(f"The on-top functional is {ifunc} \n")
+            f.write(table)
+            f.write('\n')
+
 from dataclasses import dataclass, field
 from typing import List
 @dataclass
@@ -493,8 +518,8 @@ furan_6e5o    = Molecule('furancat', 6,5, [12,17,18,19,20], iroots=3, grid=1, is
 #Select species for which the dipole moment curves will be constructed
 species=[phenol_12e11o]
 species=[furancat_5e5o]
-species=[h2o_4e4o]
 species=[h2co_6e6o]
+species=[h2o_4e4o]
 
 # ---------------------- MAIN DRIVER OVER DISTANCES -------------------
 scan=False if len(bonds)==1 else True #Determine if multiple bonds are passed
@@ -514,34 +539,8 @@ for x in species:
     for i, dist in enumerate(bonds, start=0):
         x.geom = xyz.format(dist)
         mo, ci = run(x, field, numer, analyt, mo, ci, dist, scan, dip_scan, en_scan, dmcFLAG=dmcFLAG)
-        
-        dip_head = ['Distance','CASSCF','MC-PDFT']
-        for j in range(x.iroots): 
-            dip_head+=['X', 'Y', 'Z', f'ABS ({cs(j+1)})']
-        dip_sig = (".2f",)+(".5f",)*(2+4*x.iroots)
-        
-        en_head=['Distance', 'CASSCF', 'MC-PDFT']
-        for method in analyt:
-            for jj in range(x.iroots): 
-                line=f'{method} ({cs(jj+1)})'
-                en_head.append(line)
-            en_sig = (".2f",)+(".8f",)*(2+x.iroots)
 
-        for k, ifunc in enumerate(x.ontop):
-            out = x.iname+'_'+ifunc+'.txt'
-            if analyt:
-                print(f"Analytic dipole moments found with {cs(ifunc)}")
-                dip_table = pdtabulate(dip_scan[k], dip_head, dip_sig)
-                print(dip_table)
-
-            print(f"Energies found with {cs(ifunc)}")
-            en_table = pdtabulate(en_scan[k], en_head, en_sig)
-            print(en_table)
-            action='a' if numer else 'w'
-            with open(out, action) as f:
-                f.write(f"The on-top functional is {ifunc} \n")
-                f.write(en_table)
-                f.write('\n')
-                if analyt:
-                    f.write(dip_table)
-                    f.write('\n')
+        save_data(x, analyt, dataname='Energies', data=en_scan)
+        if analyt: save_data(x, analyt, dataname='Analytic PDMs', data=dip_scan)
+        
+        
