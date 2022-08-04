@@ -96,8 +96,9 @@ def render_tdm_pdm(x, mass_center, abc_vec, pdm, tdm, method):
 # counterclockwise rotation from vec1 to vec2
 def findClockwiseAngle(ini, fin):
     ind=2 # c-component in abc frame
-    if len(ini)==3 and abs(ini[ind])<1e-3: ini=np.delete(ini,ind) 
-    if len(fin)==3 and abs(fin[ind])<1e-3: fin=np.delete(fin,ind)
+    print(ini,fin)
+    if len(ini)==3 and abs(ini[ind])<2e-2: ini=np.delete(ini,ind) 
+    if len(fin)==3 and abs(fin[ind])<2e-2: fin=np.delete(fin,ind)
     if len(ini) != len(fin): raise ValueError('Initial and final vectors have different lengths')
     if norm(ini) <1e-3: #Trivial case of zero TDM 
         ang = 0
@@ -308,7 +309,7 @@ class Molecule:
     ibasis  : str = "julccpvdz"
     grid    : int = 3
     ifunc   : str = 'tPBE'
-    opt     : bool = False
+    opt     : bool = True
 
     def __post_init__(self):
         for func in self.ifunc:
@@ -317,28 +318,31 @@ class Molecule:
             elif func[0] =='f':
                 raise NotImplementedError('Fully-translated functionals were not tested')
 
-x=[None]*21
-x[0]  = Molecule('x7_azaindole'        , 10,9,  [22,27,29,30,31,35,38,43,44])
+x=[None]*24
+x[0]  = Molecule('phenol'              ,  8,7,  [19,23,24,25,31,33,34])
 x[1]  = Molecule('benzonitrile'        , 10,10, [21,24,25,26,27,29,32,43,45,46])
 x[2]  = Molecule('dimethoxybenzene'    , 10,8,  [24,25,35,36,37,47,50,56])
 x[3]  = Molecule('fluorobenzene'       , 6,6,   [23,24,25,31,32,34])
-x[4]  = Molecule('x5_cyanoindole'      , 14,13, [26,31,33,34,35,36,37, 41,44,45,46,49,56])
-x[5]  = Molecule('x4_fluoroindole'     , 10,9,  [27,32,33,34,35,41,43,46,47])
-x[6]  = Molecule('x5_fluoroindole'     , 10,9,  [27,32,33,34,35,40,44,45,51])
-x[7]  = Molecule('x6_fluoroindole'     , 10,9,  [28,32,33,34,35,40,44,45,48])
-x[8]  = Molecule('x1_fluoronaphthalene', 10,10, [32,35,36,37,38,42,45,47,50,53])
-x[9]  = Molecule('x2_fluoronaphthalene', 10,10, [31,35,36,37,38,42,45,48,50,52])
-x[10] = Molecule('formaldehyde'        ,  6, 6, [6,7,8,9,10,11])
-x[11] = Molecule('anti_5_hydroxyindole', 12,10, [35,34,33,32,27,25,41,44,46,47])
-x[12] = Molecule('indole'              , 10,9,  [23,28,29,30,31,37,40,42,45])
-x[13] = Molecule('anti_4_methoxyindole', 12,10, [25,28,36,37,38,39,45,46,50,51])
-x[14] = Molecule('anti_5_methoxyindole', 12,10, [28,33,36,37,38,39,45,46,50,52])
-x[15] = Molecule('syn_6_methoxyindole' , 12,10, [29,33,36,37,38,39,45,47,50,52])
-x[16] = Molecule('cis_2_naphthol'      , 12,11, [27,32,35,36,37,38,42,46,48,50,53])
-x[17] = Molecule('trans_2_naphthol'    , 12,11, [28,32,35,36,37,38,42,45,48,50,53])
-x[18] = Molecule('phenol'              ,  8,7,  [19,23,24,25,31,33,34])
-x[19] = Molecule('propynal'            ,  8,7,  [11,12,13,14,16,21,22])
-x[20] = Molecule('x6_methylindole'     , 10,9,  [25,32,33,34,35,41,43,45,47])
+x[4]  = Molecule('indole'              , 10,9,  [23,28,29,30,31,37,40,42,45])
+x[5]  = Molecule('x7_azaindole'        , 10,9,  [22,27,29,30,31,35,38,43,44])
+x[6]  = Molecule('x4_fluoroindole'     , 10,9,  [27,32,33,34,35,41,43,46,47])
+x[7]  = Molecule('x5_fluoroindole'     , 10,9,  [27,32,33,34,35,40,44,45,51])
+x[8]  = Molecule('x6_fluoroindole'     , 10,9,  [28,32,33,34,35,40,44,45,48])
+x[9]  = Molecule('anti_5_hydroxyindole', 12,10, [35,34,33,32,27,25,41,44,46,47])
+x[10] = Molecule('anti_4_methoxyindole', 12,10, [25,28,36,37,38,39,45,46,50,51])
+x[11] = Molecule('anti_5_methoxyindole', 12,10, [28,33,36,37,38,39,45,46,50,52])
+x[12] = Molecule('syn_6_methoxyindole' , 12,10, [29,33,36,37,38,39,45,47,50,52])
+x[13] = Molecule('x6_methylindole'     , 10,9,  [25,32,33,34,35,41,43,45,47])
+x[14] = Molecule('x5_cyanoindole'      , 14,13, [26,31,33,34,35,36,37, 41,44,45,46,49,56])
+x[15] = Molecule('x4_cyanoindole'      , 14,13, [26,31,33,34,35,36,37, 40,44,47,49,51,53])
+x[16] = Molecule('x3_cyanoindole'      , 14,13, [25,32,33,34,35,36,37, 41,45,47,49,50,52])
+x[17] = Molecule('x2_cyanoindole'      , 14,13, [25,32,33,34,35,36,37, 41,45,47,49,50,52])
+x[18] = Molecule('cis_2_naphthol'      , 12,11, [27,32,35,36,37,38,42,46,48,50,53])
+x[19] = Molecule('trans_2_naphthol'    , 12,11, [28,32,35,36,37,38,42,45,48,50,53])
+x[20] = Molecule('propynal'            ,  8,7,  [11,12,13,14,16,21,22])
+x[21] = Molecule('formaldehyde'        ,  6, 6, [6,7,8,9,10,11])
+x[22] = Molecule('x1_fluoronaphthalene', 10,10, [32,35,36,37,38,42,45,47,50,53])
+x[23] = Molecule('x2_fluoronaphthalene', 10,10, [31,35,36,37,38,42,45,48,50,52])
 
 
 # x[12].istate = 0
