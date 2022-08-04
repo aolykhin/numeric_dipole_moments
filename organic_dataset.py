@@ -170,25 +170,34 @@ def save_dipoles(x, filename, frame, diptype, dip, oscil=None, n=None):
 def cms_dip(x):
     out = x.iname+'_'+str(x.nel)+'e'+str(x.norb)+'o'+'_'+str(x.istate)
     mol = gto.M(atom=open('geom_'+x.iname+'.xyz').read(), charge=x.icharge, spin=x.ispin,
-                    symmetry=x.isym, output=out+'.log', verbose=4, basis=x.ibasis)
+                    output=out+'.log', verbose=4, basis=x.ibasis)
+                    # symmetry=x.isym, output=out+'.log', verbose=4, basis=x.ibasis)
     weights=[1/x.iroots]*x.iroots 
 
     # -------------------- HF ---------------------------
     mf = scf.RHF(mol).run()
     molden.from_mo(mol, out+'_hf.molden', mf.mo_coeff)
 
-    # -------------------- MC-PDFT ---------------------------
+    # -------------------- Set optimization method ---------------------------
     mc = mcpdft.CASSCF(mf, x.ifunc, x.norb, x.nel, grids_level=x.grid)
-    mc.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
-    mc.fcisolver.wfnsym = x.irep
+    mc.fcisolver = csf_solver(mol, smult=x.ispin+1)
+    # mc.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
+    # mc.fcisolver.wfnsym = x.irep
     mo = mcscf.sort_mo(mc, mf.mo_coeff, x.cas_list)
-    mc.kernel(mo)
+    if x.method == 'MC-PDFT':
+        mc.kernel(mo)
+    elif x.method == 'CMS-PDFT':
+        mc = mc.multi_state(weights,'cms')
+        mc.kernel(mo)
+    else:
+        raise NotImplemented('The method for geometry optimization is not recognized')
     mo = mc.mo_coeff 
     molden.from_mo(mol, out+'_ini.molden', mc.mo_coeff)
 
+
     # ----------------- Geometry Optimization ----------------------
     if x.opt:
-        mol_eq = mc.nuc_grad_method().as_scanner().optimizer().kernel()
+        mol_eq = mc.nuc_grad_method().as_scanner(state=x.istate).optimizer().kernel()
     else: #Preoptimized geometry
         mol_eq = gto.M(atom=open('geom_opt_'+out+'.xyz').read(), charge=x.icharge, spin=x.ispin,
             symmetry=x.isym, output=out+'.log', verbose=4, basis=x.ibasis)
@@ -196,8 +205,9 @@ def cms_dip(x):
     # -------------------- CMS-PDFT ---------------------------
     mf_eq = scf.RHF(mol_eq).run()
     mc_eq = mcpdft.CASSCF(mf_eq, x.ifunc, x.norb, x.nel, grids_level=x.grid)
-    mc_eq.fcisolver = csf_solver(mol_eq, smult=x.ispin+1, symm=x.isym)
-    mc_eq.fcisolver.wfnsym = x.irep
+    mc_eq.fcisolver = csf_solver(mol_eq, smult=x.ispin+1)
+    # mc_eq.fcisolver = csf_solver(mol_eq, smult=x.ispin+1, symm=x.isym)
+    # mc_eq.fcisolver.wfnsym = x.irep
     mc_eq = mc_eq.multi_state(weights,'cms')
     mc_eq.max_cyc = 500
     mo = mcscf.project_init_guess(mc_eq, mo)
@@ -309,7 +319,8 @@ class Molecule:
     ibasis  : str = "julccpvdz"
     grid    : int = 3
     ifunc   : str = 'tPBE'
-    opt     : bool = True
+    opt     : bool= True
+    method  : str = 'CMS-PDFT'
 
     def __post_init__(self):
         for func in self.ifunc:
@@ -333,10 +344,10 @@ x[10] = Molecule('anti_4_methoxyindole', 12,10, [25,28,36,37,38,39,45,46,50,51])
 x[11] = Molecule('anti_5_methoxyindole', 12,10, [28,33,36,37,38,39,45,46,50,52])
 x[12] = Molecule('syn_6_methoxyindole' , 12,10, [29,33,36,37,38,39,45,47,50,52])
 x[13] = Molecule('x6_methylindole'     , 10,9,  [25,32,33,34,35,41,43,45,47])
-x[14] = Molecule('x5_cyanoindole'      , 14,13, [26,31,33,34,35,36,37, 41,44,45,46,49,56])
-x[15] = Molecule('x4_cyanoindole'      , 14,13, [26,31,33,34,35,36,37, 40,44,47,49,51,53])
-x[16] = Molecule('x3_cyanoindole'      , 14,13, [25,32,33,34,35,36,37, 41,45,47,49,50,52])
-x[17] = Molecule('x2_cyanoindole'      , 14,13, [25,32,33,34,35,36,37, 41,45,47,49,50,52])
+x[14] = Molecule('x5_cyanoindole'      , 14,13, [26,31,33,34,35,36,37, 41,44,46,49,50,58])
+x[15] = Molecule('x4_cyanoindole'      , 14,13, [26,31,33,34,35,36,37, 40,44,47,49,51,59])
+x[16] = Molecule('x3_cyanoindole'      , 14,13, [25,32,33,34,35,36,37, 41,45,47,49,50,57])
+x[17] = Molecule('x2_cyanoindole'      , 14,13, [25,32,33,34,35,36,37, 41,45,47,49,50,57])
 x[18] = Molecule('cis_2_naphthol'      , 12,11, [27,32,35,36,37,38,42,46,48,50,53])
 x[19] = Molecule('trans_2_naphthol'    , 12,11, [28,32,35,36,37,38,42,45,48,50,53])
 x[20] = Molecule('propynal'            ,  8,7,  [11,12,13,14,16,21,22])
@@ -350,7 +361,7 @@ x[23] = Molecule('x2_fluoronaphthalene', 10,10, [31,35,36,37,38,42,45,48,50,52])
 
 # x[10].istate = 0
 # x[10].opt = False
-cms_dip(x[10])
+cms_dip(x[21])
 
 # cms_dip(x[18])
 
