@@ -190,14 +190,15 @@ def cms_dip(x):
         mc = mc.multi_state(weights,'cms')
         mc.kernel(mo)
     else:
-        raise NotImplemented('The method for geometry optimization is not recognized')
+        raise NotImplemented('Geometry optimization method is not recognized')
     mo = mc.mo_coeff 
     molden.from_mo(mol, out+'_ini.molden', mc.mo_coeff)
 
 
     # ----------------- Geometry Optimization ----------------------
     if x.opt:
-        mol_eq = mc.nuc_grad_method().as_scanner(state=x.istate).optimizer().kernel()
+        opt_id = 0 if x.method == 'MC-PDFT' else x.istate
+        mol_eq = mc.nuc_grad_method().as_scanner(state=opt_id).optimizer().kernel()
     else: #Preoptimized geometry
         mol_eq = gto.M(atom=open('geom_opt_'+out+'.xyz').read(), charge=x.icharge, spin=x.ispin,
             symmetry=x.isym, output=out+'.log', verbose=4, basis=x.ibasis)
@@ -328,6 +329,9 @@ class Molecule:
                 raise NotImplementedError('Hybrid functionals were not tested')
             elif func[0] =='f':
                 raise NotImplementedError('Fully-translated functionals were not tested')
+        if self.method == 'MC-PDFT' and self.istate !=0:
+            raise ValueError('MC-PDFT support only the ground state but Fully-translated functionals were not tested')
+
 
 x=[None]*24
 x[0]  = Molecule('phenol'              ,  8,7,  [19,23,24,25,31,33,34])
@@ -347,7 +351,7 @@ x[13] = Molecule('x6_methylindole'     , 10,9,  [25,32,33,34,35,41,43,45,47])
 x[14] = Molecule('x5_cyanoindole'      , 14,13, [26,31,33,34,35,36,37, 41,44,46,49,50,58])
 x[15] = Molecule('x4_cyanoindole'      , 14,13, [26,31,33,34,35,36,37, 40,44,47,49,51,59])
 x[16] = Molecule('x3_cyanoindole'      , 14,13, [25,32,33,34,35,36,37, 41,45,47,49,50,57])
-x[17] = Molecule('x2_cyanoindole'      , 14,13, [25,32,33,34,35,36,37, 41,45,47,49,50,57])
+x[17] = Molecule('x2_cyanoindole'      , 14,13, [25,31,33,34,35,36,37, 41,44,48,49,53,57])
 x[18] = Molecule('cis_2_naphthol'      , 12,11, [27,32,35,36,37,38,42,46,48,50,53])
 x[19] = Molecule('trans_2_naphthol'    , 12,11, [28,32,35,36,37,38,42,45,48,50,53])
 x[20] = Molecule('propynal'            ,  8,7,  [11,12,13,14,16,21,22])
