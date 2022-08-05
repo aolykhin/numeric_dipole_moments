@@ -19,7 +19,7 @@ def cs(text): return fg('light_green')+str(text)+attr('reset')
 def pdtabulate(df, line1, line2): return tabulate(df, headers=line1, tablefmt='psql', floatfmt=line2)
 
 # ------------------ NUMERICAL DIPOLE MOMENTS ----------------------------
-def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, ifunc, out, dip_cms):
+def numer_run(x, mol, mo_zero, ci_zero, method, field, ifunc, out):
     '''
     Returns numeric permanent dipole moment found by differentiation of
     electronic energy with respect to electric field strength. 
@@ -37,12 +37,12 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, ifunc, out, dip_cms
     elif x.unit.upper() == 'AU':
         fac = 1
     else:
-        RuntimeError 
+        raise NameError('Dipole units are not recognized') 
 
     h_field_off = mol.intor('cint1e_kin_sph') + mol.intor('cint1e_nuc_sph')
     dip_num = np.zeros((len(field), 1+4*x.iroots))# 1st column is the field column
     for i, f in enumerate(field): # Over field strengths
-        dip_num[i][0]=f # the first column is the field column 
+        dip_num[i][0] = f 
         if x.formula == "2-point":
             disp = [-f, f]
         elif x.formula == "4-point":
@@ -50,7 +50,7 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, ifunc, out, dip_cms
         e = np.zeros((len(disp),x.iroots))
         if i==0: #set zero-field MOs as initial guess 
             mo_field = []
-            for icoord in range(3): mo_field.append([mo_zero]*len(disp))
+            for _ in range(3): mo_field.append([mo_zero]*len(disp))
 
         for j in range(3): # Over x,y,z directions
             for k, v in enumerate(disp): # Over stencil points 
@@ -60,7 +60,6 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, ifunc, out, dip_cms
                     E = [0, v, 0]
                 elif j==2: # Z-axis
                     E = [0, 0, v]
-                # HF step
                 h_field_on = np.einsum('x,xij->ij', E, mol.intor('cint1e_r_sph', comp=3))
                 h = h_field_off + h_field_on
                 mf_field = scf.RHF(mol)
@@ -83,30 +82,27 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, ifunc, out, dip_cms
                 if thresh: 
                     mc.conv_tol = conv_tol
                     mc.conv_tol_grad = conv_tol_grad
-                weights=[1/x.iroots]*x.iroots #Equal weights only
-                # MC-PDFT 
+                weights=[1/x.iroots]*x.iroots
                 if method == 'SS-PDFT':
                     e_mcpdft = mc.kernel(mo)[0]
                     if mc.converged==False: 
                         mc.max_cycle_macro = 600
                         e_mcpdft = mc.kernel(mo_zero)[0]
                     e[k] = e_mcpdft
-                # SA-PDFT 
                 elif method == 'SA-PDFT':
                     mc=mc.state_average_(weights)
                     mc.kernel(mo)
                     if mc.converged==False:
                         mc.max_cycle_macro = 600
                         mc.run(mo_zero)
-                    e[k] = mc.e_states #List of energies
-                # CMS-PDFT 
+                    e[k] = mc.e_states 
                 elif method == 'CMS-PDFT':
                     mc=mc.multi_state(weights,'cms')
                     mc.kernel(mo)
                     if mc.converged==False:
                         mc.max_cycle_macro = 600
                         mc.run(mo_zero)
-                    e[k] = mc.e_states.tolist() #List of  energies
+                    e[k] = mc.e_states.tolist()
                 else:
                     raise NotImplementedError ('Numerical reference method is not recognized')
                 mo_field[j][k] = mc.mo_coeff #save MOs for the next stencil point k and axis j 
@@ -124,9 +120,6 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, ifunc, out, dip_cms
         for m in range(x.iroots):
             shift=m*4 # shift to the next state by 4m columns (x,y,z,mu)    
             dip_num[i,4+shift] = np.linalg.norm(dip_num[i,1+shift:4+shift])
-    
-    #Save covergence plots
-    # num_conv_plot(x, field, dip_num, dist, method, dip_cms)
     return dip_num
 
 def num_conv_plot(x, field, dip_num, dist, method, dip_cms):
@@ -314,11 +307,10 @@ def get_dipole(x, field, numer, analyt, mol, mf, mo, ci, e_casscf, dist, dmcFLAG
                 elif method == 'CMS-PDFT' or method == 'SA-PDFT':
                     mo=mo_sa
 
-                dip_num = numer_run(dist, x, mol, mo, ci, method, field, ifunc, out, dip_cms)
+                dip_num = numer_run(x, mol, mo, ci, method, field, ifunc, out)
         else:
             print("Numerical dipole is ignored")
             dip_num = np.zeros((len(field), 4))
-        
    
         analytic[k] = [dist, abs_cas, abs_pdft] + dip_cms
         numeric [k] = dip_num
@@ -331,8 +323,7 @@ def save_data(x, analyt, numer, dataname=None, data=None, dist=None):
     NUMERIC PDMS               is a list: [functional [filed [values] ] ]
     where values could be arrays of energies, permanent, or transition dipole moments
     '''
-    if data == None or dataname == None: 
-        raise ValueError('data/datname was not provided')
+    assert data != None and dataname != None, 'Please provide data/datname when saving dipoles'
 
     if dataname.upper() == 'ENERGIES' or dataname.upper() =='ANALYTIC PDMS':
         data = list(zip(*data)) #flip dimensions over bonds with functionals
@@ -373,8 +364,8 @@ def save_data(x, analyt, numer, dataname=None, data=None, dist=None):
 
 def is_geom_scan(geom,bonds):
     if len(bonds) > 1 and geom.find("{}") == -1:
-        raise ValueError('Provided molecular geometry is not suitable \
-            for PES scan; please add {} to the .xyz file')
+        raise ValueError('Provided molecular geometry is not suitable for PES scan\
+            please add {} to the .xyz file')
 
 from dataclasses import dataclass, field
 from typing import List
@@ -399,6 +390,7 @@ class Molecule:
     unit    : str = 'Debye'
 
     def __post_init__(self):
+        # assert isinstance(self.ontop, List[str])
         for func in self.ontop:
             if len(func) > 10:
                 raise NotImplementedError('Hybrid functionals were not tested')
@@ -407,8 +399,7 @@ class Molecule:
 #--------------------- Set Up Parameters for Dipole Moment Curves--------------------
 # Set the bond range
 bonds = np.array([1.0])
-bonds = np.array([1.0, 1.1])
-# bonds = np.array([2.1])
+# bonds = np.array([1.0, 1.1])
 inc=0.1
 # bonds = np.array([1.6,2.0,2.1,2.2,2.3,2.4,2.5]) # for energy curves
 # bonds = np.arange(1.0,3.0+inc,inc) # for energy curves
@@ -462,9 +453,10 @@ furan_6e5o    = Molecule('furancat', 6,5, [12,17,18,19,20], iroots=3, grid=1, is
 #Select species for which the dipole moment curves will be constructed
 species = [phenol_12e11o]
 species = [furancat_5e5o]
-species = [h2o_4e4o]
 species = [h2co_6e6o]
 species = [h2o_4e4o_scan]
+# h2o_4e4o.ontop = 'tPBE'
+species = [h2o_4e4o]
 
 # ---------------------- MAIN DRIVER OVER DISTANCES -------------------
 for x in species:
