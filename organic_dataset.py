@@ -95,11 +95,12 @@ def render_tdm_pdm(x, mass_center, abc_vec, pdm, tdm, method):
 
 # counterclockwise rotation from vec1 to vec2
 def findClockwiseAngle(ini, fin):
+    '''Takes '''
     ind=2 # c-component in abc frame
     print(ini,fin)
     if len(ini)==3 and abs(ini[ind])<2e-2: ini=np.delete(ini,ind) 
     if len(fin)==3 and abs(fin[ind])<2e-2: fin=np.delete(fin,ind)
-    if len(ini) != len(fin): raise ValueError('Initial and final vectors have different lengths')
+    assert (len(ini) == len(fin)), 'The c-component of dipole is too large, molecule is not planar'
     if norm(ini) <1e-3: #Trivial case of zero TDM 
         ang = 0
     else:

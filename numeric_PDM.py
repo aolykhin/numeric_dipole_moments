@@ -108,7 +108,7 @@ def numer_run(dist, x, mol, mo_zero, ci_zero, method, field, ifunc, out, dip_cms
                         mc.run(mo_zero)
                     e[k] = mc.e_states.tolist() #List of  energies
                 else:
-                    raise NotImplementedError
+                    raise NotImplementedError ('Numerical reference method is not recognized')
                 mo_field[j][k] = mc.mo_coeff #save MOs for the next stencil point k and axis j 
 
             for m in range(x.iroots): # Over states
@@ -309,7 +309,7 @@ def get_dipole(x, field, numer, analyt, mol, mf, mo, ci, e_casscf, dist, dmcFLAG
         if numer:
             for method in numer:
                 if method == 'MC-PDFT': 
-                    # raise NotImplementedError
+                    raise NotImplementedError('MC-PDFT is not tested yet for numerical dipole moments')
                     mo=mo_ss
                 elif method == 'CMS-PDFT' or method == 'SA-PDFT':
                     mo=mo_sa
