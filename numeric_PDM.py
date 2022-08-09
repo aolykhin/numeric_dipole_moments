@@ -73,40 +73,23 @@ def numer_run(x, mol, thresh, mo_zero, ci_zero, method, field, ifunc, out):
                 mc.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
                 mc.fcisolver.wfnsym = x.irep
                 # mc.fix_spin_(ss=x.ispin)
-                # print('j=%s and k=%s' %(j,k))
-                if i==0: #First field starts with zero-field MOs
-                    mc.max_cycle_macro = 600
-                    mo=mo_zero 
-                else: # Try MOs from the previous filed/point
-                    mc.max_cycle_macro = 5
-                    mo=mo_field[j][k]
-                # if the threshold is too tight the active space is unstable
-                if thresh: 
-                    mc.conv_tol = thresh.conv_tol
-                    mc.conv_tol_grad = thresh.conv_tol_grad
+                mc.conv_tol = thresh.conv_tol
+                mc.conv_tol_grad = thresh.conv_tol_grad
                 weights=[1/x.iroots]*x.iroots
-                if method == 'SS-PDFT':
-                    e_mcpdft = mc.kernel(mo)[0]
-                    if mc.converged==False: 
-                        mc.max_cycle_macro = 600
-                        e_mcpdft = mc.kernel(mo_zero)[0]
-                    e[k] = e_mcpdft
-                elif method == 'SA-PDFT':
-                    mc=mc.state_average_(weights)
-                    mc.kernel(mo)
-                    if mc.converged==False:
-                        mc.max_cycle_macro = 600
-                        mc.run(mo_zero)
-                    e[k] = mc.e_states 
-                elif method == 'CMS-PDFT':
-                    mc=mc.multi_state(weights,'cms')
-                    mc.kernel(mo)
-                    if mc.converged==False:
-                        mc.max_cycle_macro = 600
-                        mc.run(mo_zero)
-                    e[k] = mc.e_states.tolist()
-                else:
-                    raise NotImplementedError ('Numerical reference method is not recognized')
+                if   method == 'SS-PDFT':  mc = mc
+                elif method == 'SA-PDFT':  mc = mc.state_average_(weights)
+                elif method == 'CMS-PDFT': mc = mc.multi_state(weights,'cms')
+           
+                try: #MOs from the previous filed/point
+                    mc.max_cycle_macro = 5
+                    mc.kernel(mo_field[j][k])
+                    assert mc.converged == True
+                except: #MOs from zero-field point
+                    mc.max_cycle_macro = 600
+                    mc.kernel(mo_zero)
+                if   method == 'SS-PDFT':  e[k] = mc[0]
+                elif method == 'SA-PDFT':  e[k] = mc.e_states 
+                elif method == 'CMS-PDFT': e[k] = mc.e_states.tolist()
                 mo_field[j][k] = mc.mo_coeff #save MOs for the next stencil point k and axis j 
 
             for m in range(x.iroots): # Over states
@@ -304,7 +287,8 @@ def get_dipole(x, field, analyt, numer, thresh, mol, mf, mo, ci, e_casscf, dist,
                     mo=mo_ss
                 elif method == 'CMS-PDFT' or method == 'SA-PDFT':
                     mo=mo_sa
-
+                else: 
+                    raise NameError('Numerical reference method is not recognized')
                 dip_num = numer_run(x, mol, thresh, mo, ci, method, field, ifunc, out)
         else:
             print("Numerical dipole is ignored")
