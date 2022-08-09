@@ -63,11 +63,9 @@ def numer_run(x, mol, thresh, mo_zero, ci_zero, method, field, ifunc, out):
                 elif j==2: # Z-axis
                     E = [0, 0, v]
                 h_field_on = np.einsum('x,xij->ij', E, mol.intor('cint1e_r_sph', comp=3))
-                h = h_field_off + h_field_on
                 mf_field = scf.RHF(mol)
-                mf_field.get_hcore = lambda *args: h
-                mf_field.max_cycle = 1  # next CASSCF starts from CAS orbitals not RHF
-                mf_field.kernel()
+                mf_field.get_hcore = lambda *args: h_field_off + h_field_on
+                mf_field.set(max_cycle = 1).kernel()
 
                 mc = mcpdft.CASSCF(mf_field, ifunc, x.norb, x.nel, grids_level=x.grid)
                 mc.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
@@ -76,10 +74,9 @@ def numer_run(x, mol, thresh, mo_zero, ci_zero, method, field, ifunc, out):
                 mc.conv_tol = thresh.conv_tol
                 mc.conv_tol_grad = thresh.conv_tol_grad
                 weights=[1/x.iroots]*x.iroots
-                if   method == 'SS-PDFT':  mc = mc
+                if   method == 'MC-PDFT':  mc = mc
                 elif method == 'SA-PDFT':  mc = mc.state_average_(weights)
                 elif method == 'CMS-PDFT': mc = mc.multi_state(weights,'cms')
-           
                 try: #MOs from the previous filed/point
                     mc.max_cycle_macro = 5
                     mc.kernel(mo_field[j][k])
@@ -87,7 +84,7 @@ def numer_run(x, mol, thresh, mo_zero, ci_zero, method, field, ifunc, out):
                 except: #MOs from zero-field point
                     mc.max_cycle_macro = 600
                     mc.kernel(mo_zero)
-                if   method == 'SS-PDFT':  e[k] = mc[0]
+                if   method == 'MC-PDFT':  e[k] = mc[0]
                 elif method == 'SA-PDFT':  e[k] = mc.e_states 
                 elif method == 'CMS-PDFT': e[k] = mc.e_states.tolist()
                 mo_field[j][k] = mc.mo_coeff #save MOs for the next stencil point k and axis j 
@@ -110,7 +107,6 @@ def numer_run(x, mol, thresh, mo_zero, ci_zero, method, field, ifunc, out):
 def num_conv_plot(x, field, dip_num, dist, method, dip_cms):
     y1=[None]*x.iroots
     x1=field.flatten()
-    # x1=field
     for m in range(x.iroots):
         plt.figure(m)
         shift=m*4
@@ -120,12 +116,10 @@ def num_conv_plot(x, field, dip_num, dist, method, dip_cms):
             analyt_dipole=dip_cms[shift+3]
         else:
             raise NotImplementedError
-
         x_new = np.linspace(x1.min(), x1.max(),500)
         f = interp1d(x1, y1[m], kind='quadratic')
         y_smooth=f(x_new)
         plt.plot (x_new,y_smooth)
-
         plt.title('Distance = %s and Sate = %s' %((dist,m+1)))
         plt.xlabel('Field / au')
         plt.ylabel('Dipole moment / D')
@@ -134,7 +128,6 @@ def num_conv_plot(x, field, dip_num, dist, method, dip_cms):
         plt.tick_params(axis='x', which='minor', bottom=False)
         plt.axhline(y = analyt_dipole, color = 'k', linestyle = ':')
         plt.savefig('fig_'+x.iname+'_'+f"{dist:.2f}"+'_st_'+str(m+1)+'_'+method+'.png')
-    return
 
 def casscf(x, analyt, numer, thresh, dist=None, init=None, mo=None, ci=None):
     ''' 
@@ -192,13 +185,10 @@ def get_dipole(x, field, analyt, numer, thresh, mol, mf, mo, ci, e_casscf, dist,
     Ruturns analytical and numerical dipoles for a given geometry for each functional used 
     '''
     weights=[1/x.iroots]*x.iroots
-
-    #MC-PDFT step
+    origin = "Charge_center" if x.icharge !=0 else "Coord_center" 
     numeric  = [None]*len(x.ontop)
     analytic = [None]*len(x.ontop)
     energy   = [None]*len(x.ontop)
-
-    origin = "Charge_center" if x.icharge !=0 else "Coord_center" 
     for k, ifunc in enumerate(x.ontop): # Over on-top functionals
         out = x.iname+'_'+ifunc+'_'+f"{dist:.2f}"
         mol.output = out+'.log'
@@ -392,9 +382,6 @@ def main():
     # bonds = np.arange(0,2,1) 
 
     # Set field range
-    # field = np.linspace(1e-3, 1e-2, num=19)
-    # field = np.linspace(1e-3, 1e-2, num=10)
-    # field = np.linspace(1e-5, 1e-2, num=30)
     # field = np.linspace(2e-3, 1e-2, endpoint=True, num=81)
     # field = np.linspace(5e-4, 5e-3, endpoint=True, num=46)
     # field = np.linspace(1e-3, 1e-2, num=2)
