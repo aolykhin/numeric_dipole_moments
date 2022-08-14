@@ -159,14 +159,15 @@ def save_dipoles(x, filename, frame, diptype, dip, oscil=None, n=None):
     xyz = f' |{diptype}| = {tot:4.2f}    {frame} (D): {dip[0]:7.3f} {dip[1]:7.3f} {dip[2]:7.3f}'
     with open(filename, 'a') as f:
         if diptype == 'PDM':
-            print(f'{x.iname:<30} {diptype} <{x.istate}|mu|{x.istate}>' + xyz, file=f)
+            id =f'< {x.istate}|mu|{x.istate}>'
         elif diptype == 'TDM':
             if x.istate == 0:
-                print(f'{x.iname:<30} {diptype} <{x.istate}|mu|0> Oscil = {oscil:4.3f}' + xyz, file=f)
+                id = f' <0|mu|{n}> Oscil = {oscil:4.3f}'
             else:
-                print(f'{x.iname:<30} {diptype} <0|mu|{n}> Oscil = {oscil:4.3f}' + xyz, file=f)
+                id = f' <{x.istate}|mu|0> Oscil = {oscil:4.3f}'
         else:
             raise NotImplementedError
+        print(f'{x.iname:<30} {diptype}' + id + xyz, file=f)
 
 def cms_dip(x):
     out = x.iname+'_'+str(x.nel)+'e'+str(x.norb)+'o'+'_'+str(x.istate)
@@ -235,7 +236,7 @@ def cms_dip(x):
         tot = np.linalg.norm(tdm)/nist.AU2DEBYE
         oscil = (2/3)*(en[x.istate]-en[0])*(tot**2)
         tdm = [tdm]
-        save_dipoles(x, 'cms_tdm', 'XYZ', 'TDM', tdm[0], oscil=oscil, n=0)
+        save_dipoles(x, 'cms_tdm', 'XYZ', 'TDM', tdm[0], oscil=oscil, n=x.istate)
         
 
     #Save TDMs in ABC frame
@@ -250,7 +251,7 @@ def cms_dip(x):
     else:
         tot = np.linalg.norm(tdm_abc[0])/nist.AU2DEBYE
         oscil = (2/3)*(en[x.istate]-en[0])*(tot**2)
-        save_dipoles(x, 'cms_tdm_ABC', 'ABC', 'TDM', tdm_abc[0], oscil=oscil, n=0)
+        save_dipoles(x, 'cms_tdm_ABC', 'ABC', 'TDM', tdm_abc[0], oscil=oscil, n=x.istate)
 
     #Save final energies
     with open('cms_energies', 'a') as f:
@@ -275,7 +276,7 @@ def cms_dip(x):
         tot = np.linalg.norm(tdm)/nist.AU2DEBYE
         oscil = (2/3)*(en[x.istate]-en[0])*(tot**2)
         tdm = [tdm]
-        save_dipoles(x, 'casci_tdm', 'XYZ', 'TDM', tdm[0], oscil=oscil, n=0)
+        save_dipoles(x, 'casci_tdm', 'XYZ', 'TDM', tdm[0], oscil=oscil, n=x.istate)
 
     #Save TDMs in ABC frame
     pdm_abc, tdm_abc = transform_dip(x, mol, pdm, tdm, 'casci')
@@ -289,7 +290,7 @@ def cms_dip(x):
     else: 
         tot = np.linalg.norm(tdm_abc[0])/nist.AU2DEBYE
         oscil = (2/3)*(en[x.istate]-en[0])*(tot**2)
-        save_dipoles(x, 'casci_tdm_ABC', 'ABC', 'TDM', tdm_abc[0], oscil=oscil, n=0)
+        save_dipoles(x, 'casci_tdm_ABC', 'ABC', 'TDM', tdm_abc[0], oscil=oscil, n=x.istate)
 
   
     #Save the optimized geometry to the xyz file
@@ -366,10 +367,15 @@ x[23] = Molecule('x2_fluoronaphthalene', 10,10, [31,35,36,37,38,42,45,48,50,52])
 
 # x[10].istate = 0
 # x[10].opt = False
-cms_dip(x[21])
+# cms_dip(x[21])
 
 # cms_dip(x[18])
 
 # x[3].istate = 0
 # x[3].opt = False
 # cms_dip(x[3])
+v1 = np.array([1,0])
+# v2 = np.array([-0.882  , 0.019])
+v2 = np.array([-0.758, 0.131])
+a = findClockwiseAngle(v1,v2)
+print(a)
