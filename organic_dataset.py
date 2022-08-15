@@ -123,12 +123,7 @@ def transform_dip(x, mol, pdm, tdm, method):
     rot_mat = np.linalg.solve(origin,abc_vec)
     pdm_abc, pdm_ang = get_ang_with_a_axis(pdm, rot_mat)
     tdm_abc, tdm_ang = get_ang_with_a_axis(tdm, rot_mat)
-    with open(method+'_angles', 'a') as f:
-        for i in range(len(pdm_ang)):
-            print(f'{out:<30} theta with pdm is {pdm_ang[i]:5.1f} degrees', file=f)
-        for i in range(len(tdm_ang)):
-            print(f'{out:<30} theta with tdm is {tdm_ang[i]:5.1f} degrees', file=f)
-    return pdm_abc, tdm_abc
+    return pdm_abc, tdm_abc, pdm_ang, tdm_ang
 
 def get_ang_with_a_axis(dm, rot_mat):
     dm_abc = np.empty_like(dm)
@@ -162,12 +157,25 @@ def save_dipoles(x, filename, frame, diptype, dip, oscil=None, n=None):
             id =f'< {x.istate}|mu|{x.istate}>'
         elif diptype == 'TDM':
             if x.istate == 0:
-                id = f' <0|mu|{n}> Oscil = {oscil:4.3f}'
+                id = f' <0|mu|{n}> {oscil=:4.3f}'
             else:
-                id = f' <{x.istate}|mu|0> Oscil = {oscil:4.3f}'
+                id = f' <{x.istate}|mu|0> {oscil=:4.3f}'
         else:
             raise NotImplementedError
         print(f'{x.iname:<30} {diptype}' + id + xyz, file=f)
+
+def save_angles(x, method, diptype, ang, n=0):
+    with open(method+'_angles', 'a') as f:
+        if diptype == 'PDM':
+            id =f'< {x.istate}|mu|{x.istate}>'
+        elif diptype == 'TDM':
+            if x.istate == 0:
+                id = f' <0|mu|{n}>'
+            else:
+                id = f' <{x.istate}|mu|0>'
+        else:
+            raise NotImplementedError
+        print(f'{x.iname:<30} {diptype} theta for {id} is {ang:5.1f} degrees', file=f)
 
 def cms_dip(x):
     out = x.iname+'_'+str(x.nel)+'e'+str(x.norb)+'o'+'_'+str(x.istate)
@@ -175,7 +183,6 @@ def cms_dip(x):
                     output=out+'.log', verbose=4, basis=x.ibasis)
                     # symmetry=x.isym, output=out+'.log', verbose=4, basis=x.ibasis)
     weights=[1/x.iroots]*x.iroots 
-
     # -------------------- HF ---------------------------
     mf = scf.RHF(mol).run()
     molden.from_mo(mol, out+'_hf.molden', mf.mo_coeff)
@@ -186,16 +193,12 @@ def cms_dip(x):
     # mc.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
     # mc.fcisolver.wfnsym = x.irep
     mo = mcscf.sort_mo(mc, mf.mo_coeff, x.cas_list)
-    if x.method == 'MC-PDFT':
-        mc.kernel(mo)
-    elif x.method == 'CMS-PDFT':
-        mc = mc.multi_state(weights,'cms')
-        mc.kernel(mo)
-    else:
-        raise NotImplemented('Geometry optimization method is not recognized')
+    if x.method == 'MC-PDFT': None
+    elif x.method == 'CMS-PDFT': mc = mc.multi_state(weights,'cms')
+    else: raise NotImplemented('Geometry optimization method is not recognized')
+    mc.kernel(mo)
     mo = mc.mo_coeff 
     molden.from_mo(mol, out+'_ini.molden', mc.mo_coeff)
-
 
     # ----------------- Geometry Optimization ----------------------
     if x.opt:
@@ -218,7 +221,6 @@ def cms_dip(x):
     mo = mc_eq.mo_coeff 
     molden.from_mo(mol_eq, out+'_opt.molden', mc_eq.mo_coeff)
 
-
     # ------------------- CMS-PDFT PDM AND TDM ------------------
     en = mc_eq.e_states.tolist() #List of CMS energies
     pdm = mc_eq.dip_moment(state=x.istate, unit='Debye')
@@ -238,9 +240,10 @@ def cms_dip(x):
         tdm = [tdm]
         save_dipoles(x, 'cms_tdm', 'XYZ', 'TDM', tdm[0], oscil=oscil, n=x.istate)
         
-
     #Save TDMs in ABC frame
-    pdm_abc, tdm_abc = transform_dip(x, mol, pdm, tdm, 'cms')
+    pdm_abc, tdm_abc, pdm_ang, tdm_ang = transform_dip(x, mol, pdm, tdm, 'cms')
+    
+    save_angles(x, 'cms', 'PDM', pdm_ang[0])
     save_dipoles(x, 'cms_pdm_ABC', 'ABC', 'PDM', pdm_abc[0])
     if x.istate==0: # from <0| to others
         for n in range(1,x.iroots):
@@ -248,50 +251,55 @@ def cms_dip(x):
             tot = np.linalg.norm(tdm_abc[k])/nist.AU2DEBYE
             oscil = (2/3)*(en[n]-en[0])*(tot**2)
             save_dipoles(x, 'cms_tdm_ABC', 'ABC', 'TDM', tdm_abc[k], oscil=oscil, n=n)
+            save_angles(x, 'cms', 'TDM', tdm_ang[k], n=n)
     else:
         tot = np.linalg.norm(tdm_abc[0])/nist.AU2DEBYE
         oscil = (2/3)*(en[x.istate]-en[0])*(tot**2)
         save_dipoles(x, 'cms_tdm_ABC', 'ABC', 'TDM', tdm_abc[0], oscil=oscil, n=x.istate)
+        save_angles(x, 'cms', 'TDM', tdm_ang[0], n=x.istate)
 
     #Save final energies
     with open('cms_energies', 'a') as f:
         print(f'{out:<30} {en}', file=f)
     #-------------------------------------------------------------------
          
-    # ------------------- CAS-CI PDM AND TDM ------------------
-    pdm = dm_casci(mo,mc_eq,mol_eq,state=[x.istate,x.istate])
-    pdm = [pdm]
-    save_dipoles(x, 'casci_pdm', 'XYZ', 'PDM', pdm[0])
-    #Compute & save TDMs from the optimized excited to ground state
-    en = mc_eq.e_mcscf
-    if x.istate==0: # from <0| to others
-        tdm = [dm_casci(mo,mc_eq,mol_eq,state=[0,n]) for n in range(1,x.iroots)]
-        for n in range(1,x.iroots):
-            k = n-1 # TDM's id 
-            tot = np.linalg.norm(tdm[k])/nist.AU2DEBYE
-            oscil = (2/3)*(en[n]-en[0])*(tot**2)
-            save_dipoles(x, 'casci_tdm', 'XYZ', 'TDM', tdm[k], oscil=oscil, n=n)
-    else:    
-        tdm = dm_casci(mo,mc_eq,mol_eq,state=[x.istate,0])
-        tot = np.linalg.norm(tdm)/nist.AU2DEBYE
-        oscil = (2/3)*(en[x.istate]-en[0])*(tot**2)
-        tdm = [tdm]
-        save_dipoles(x, 'casci_tdm', 'XYZ', 'TDM', tdm[0], oscil=oscil, n=x.istate)
+    # # ------------------- CAS-CI PDM AND TDM ------------------
+    # pdm = dm_casci(mo,mc_eq,mol_eq,state=[x.istate,x.istate])
+    # pdm = [pdm]
+    # save_dipoles(x, 'casci_pdm', 'XYZ', 'PDM', pdm[0])
+    # #Compute & save TDMs from the optimized excited to ground state
+    # en = mc_eq.e_mcscf
+    # if x.istate==0: # from <0| to others
+    #     tdm = [dm_casci(mo,mc_eq,mol_eq,state=[0,n]) for n in range(1,x.iroots)]
+    #     for n in range(1,x.iroots):
+    #         k = n-1 # TDM's id 
+    #         tot = np.linalg.norm(tdm[k])/nist.AU2DEBYE
+    #         oscil = (2/3)*(en[n]-en[0])*(tot**2)
+    #         save_dipoles(x, 'casci_tdm', 'XYZ', 'TDM', tdm[k], oscil=oscil, n=n)
+    # else:    
+    #     tdm = dm_casci(mo,mc_eq,mol_eq,state=[x.istate,0])
+    #     tot = np.linalg.norm(tdm)/nist.AU2DEBYE
+    #     oscil = (2/3)*(en[x.istate]-en[0])*(tot**2)
+    #     tdm = [tdm]
+    #     save_dipoles(x, 'casci_tdm', 'XYZ', 'TDM', tdm[0], oscil=oscil, n=x.istate)
 
-    #Save TDMs in ABC frame
-    pdm_abc, tdm_abc = transform_dip(x, mol, pdm, tdm, 'casci')
-    save_dipoles(x, 'casci_pdm_ABC', 'ABC', 'PDM', pdm_abc[0])
-    if x.istate==0: # from <0| to others
-        for n in range(1,x.iroots):
-            k = n-1 # TDM's id 
-            tot = np.linalg.norm(tdm_abc[k])/nist.AU2DEBYE
-            oscil = (2/3)*(en[n]-en[0])*(tot**2)
-            save_dipoles(x, 'casci_tdm_ABC', 'ABC', 'TDM', tdm_abc[k], oscil=oscil, n=n)
-    else: 
-        tot = np.linalg.norm(tdm_abc[0])/nist.AU2DEBYE
-        oscil = (2/3)*(en[x.istate]-en[0])*(tot**2)
-        save_dipoles(x, 'casci_tdm_ABC', 'ABC', 'TDM', tdm_abc[0], oscil=oscil, n=x.istate)
+    # #Save TDMs in ABC frame
+    # pdm_abc, tdm_abc = transform_dip(x, mol, pdm, tdm, 'casci')
+    # save_dipoles(x, 'casci_pdm_ABC', 'ABC', 'PDM', pdm_abc[0])
+    # if x.istate==0: # from <0| to others
+    #     for n in range(1,x.iroots):
+    #         k = n-1 # TDM's id 
+    #         tot = np.linalg.norm(tdm_abc[k])/nist.AU2DEBYE
+    #         oscil = (2/3)*(en[n]-en[0])*(tot**2)
+    #         save_dipoles(x, 'casci_tdm_ABC', 'ABC', 'TDM', tdm_abc[k], oscil=oscil, n=n)
+    # else: 
+    #     tot = np.linalg.norm(tdm_abc[0])/nist.AU2DEBYE
+    #     oscil = (2/3)*(en[x.istate]-en[0])*(tot**2)
+    #     save_dipoles(x, 'casci_tdm_ABC', 'ABC', 'TDM', tdm_abc[0], oscil=oscil, n=x.istate)
 
+    # #Save final energies
+    # with open('casci_energies', 'a') as f:
+    #     print(f'{out:<30} {en}', file=f)
   
     #Save the optimized geometry to the xyz file
     if x.opt:
@@ -300,9 +308,6 @@ def cms_dip(x):
                 coord = str(mol_eq.atom_coord(i,unit='Angstrom'))[1:-1]
                 print(f'{mol_eq.atom_symbol(i)} {coord}', file=f)
 
-    #Save final energies
-    with open('casci_energies', 'a') as f:
-        print(f'{out:<30} {en}', file=f)
             
     return
 
@@ -379,3 +384,4 @@ v1 = np.array([1,0])
 v2 = np.array([-0.758, 0.131])
 a = findClockwiseAngle(v1,v2)
 print(a)
+# xyz = np.array([0.692  , 0.337]) 
