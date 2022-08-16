@@ -231,7 +231,6 @@ def main(x):
     return
 
 def get_dipoles(x, mc, mol, out):
-    # ------------------- CMS-PDFT PDM AND TDM ------------------
     en = mc.e_states.tolist() #List of CMS energies
     pdm = mc.dip_moment(state=x.istate, unit='Debye')
     pdm = [pdm]
@@ -328,7 +327,8 @@ class Molecule:
     grid    : int = 3
     ifunc   : str = 'tPBE'
     opt     : bool= True
-    method  : str = 'CMS-PDFT'
+    opt_method  : str = 'CMS-PDFT'
+    dip_method  : str = 'CMS-PDFT'
 
     def __post_init__(self):
         for func in self.ifunc:
@@ -336,7 +336,7 @@ class Molecule:
                 raise NotImplementedError('Hybrid functionals were not tested')
             elif func[0] =='f':
                 raise NotImplementedError('Fully-translated functionals were not tested')
-        if self.method == 'MC-PDFT' and self.istate !=0:
+        if self.opt_method == 'MC-PDFT' and self.istate !=0:
             raise ValueError('MC-PDFT support only the ground state but Fully-translated functionals were not tested')
 
 
