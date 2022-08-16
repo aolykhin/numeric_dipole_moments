@@ -195,6 +195,7 @@ def cms_dip(x):
     mo = mcscf.sort_mo(mc, mf.mo_coeff, x.cas_list)
     if x.method == 'MC-PDFT': None
     elif x.method == 'CMS-PDFT': mc = mc.multi_state(weights,'cms')
+    elif x.method == 'SA-PDFT': mc.state_average(weights)
     else: raise NotImplemented('Geometry optimization method is not recognized')
     mc.kernel(mo)
     mo = mc.mo_coeff 
