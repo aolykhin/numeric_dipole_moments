@@ -340,10 +340,10 @@ class Molecule:
             raise ValueError('MC-PDFT support only the ground state but Fully-translated functionals were not tested')
 
 
-x=[None]*24
+x=[None]*26
 x[0]  = Molecule('phenol'              ,  8,7,  [19,23,24,25,31,33,34])
-x[1]  = Molecule('benzonitrile'        , 10,10, [21,24,25,26,27,29,32,43,45,46])
-x[2]  = Molecule('dimethoxybenzene'    , 10,8,  [24,25,35,36,37,47,50,56])
+x[1] =  Molecule('anisole'             ,  8,7,  [23,27,28,29,36,39,40])
+x[2]  = Molecule('benzonitrile'        , 10,10, [21,24,25,26,27,29,32,43,45,46])
 x[3]  = Molecule('fluorobenzene'       , 6,6,   [23,24,25,31,32,34])
 x[4]  = Molecule('indole'              , 10,9,  [23,28,29,30,31,37,40,42,45])
 x[5]  = Molecule('x7_azaindole'        , 10,9,  [22,27,29,30,31,35,38,43,44])
@@ -365,10 +365,12 @@ x[20] = Molecule('propynal'            ,  8,7,  [11,12,13,14,16,21,22])
 x[21] = Molecule('formaldehyde'        ,  6, 6, [6,7,8,9,10,11])
 x[22] = Molecule('x1_fluoronaphthalene', 10,10, [32,35,36,37,38,42,45,47,50,53])
 x[23] = Molecule('x2_fluoronaphthalene', 10,10, [31,35,36,37,38,42,45,48,50,52])
+x[24] = Molecule('x13_dimethoxybenzene', 10,8,  [24,25,35,36,37,47,50,56])
+x[25] = Molecule('x14_dimethoxybenzene', 10,8,  [30,32,35,36,37,47,50,54])
 
 
-# x[12].istate = 0
-# cms_dip(x[12])
+x[25].istate = 0
+cms_dip(x[25])
 
 # x[10].istate = 0
 # x[10].opt = False
@@ -379,9 +381,10 @@ x[23] = Molecule('x2_fluoronaphthalene', 10,10, [31,35,36,37,38,42,45,48,50,52])
 # x[3].istate = 0
 # x[3].opt = False
 # cms_dip(x[3])
-v1 = np.array([1,0])
-# v2 = np.array([-0.882  , 0.019])
-v2 = np.array([-0.758, 0.131])
-a = findClockwiseAngle(v1,v2)
-print(a)
+
+# v1 = np.array([1,0])
+# # v2 = np.array([-0.882  , 0.019])
+# v2 = np.array([-0.758, 0.131])
+# a = findClockwiseAngle(v1,v2)
+# print(a)
 # xyz = np.array([0.692  , 0.337]) 
