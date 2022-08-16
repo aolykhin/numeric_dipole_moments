@@ -209,13 +209,16 @@ def cms_dip(x):
         mol_eq = gto.M(atom=open('geom_opt_'+out+'.xyz').read(), charge=x.icharge, spin=x.ispin,
             symmetry=x.isym, output=out+'.log', verbose=4, basis=x.ibasis)
 
-    # -------------------- CMS-PDFT ---------------------------
+    # -------------------- Single Point ---------------------------
     mf_eq = scf.RHF(mol_eq).run()
     mc_eq = mcpdft.CASSCF(mf_eq, x.ifunc, x.norb, x.nel, grids_level=x.grid)
     mc_eq.fcisolver = csf_solver(mol_eq, smult=x.ispin+1)
     # mc_eq.fcisolver = csf_solver(mol_eq, smult=x.ispin+1, symm=x.isym)
     # mc_eq.fcisolver.wfnsym = x.irep
-    mc_eq = mc_eq.multi_state(weights,'cms')
+    if (x.method == 'CMS-PDFT') or (x.method =='MC-PDFT'):
+        mc_eq = mc_eq.multi_state(weights,'cms')
+    elif x.method == 'SA-PDFT': mc_eq.state_average(weights)
+    else: raise NotImplemented('Geometry optimization method is not recognized')
     mc_eq.max_cyc = 500
     mo = mcscf.project_init_guess(mc_eq, mo)
     mc_eq.kernel(mo)
