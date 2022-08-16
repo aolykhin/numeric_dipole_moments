@@ -177,17 +177,16 @@ def save_angles(x, method, diptype, ang, n=0):
             raise NotImplementedError
         print(f'{x.iname:<30} {diptype} theta for {id} is {ang:5.1f} degrees', file=f)
 
-def cms_dip(x):
+def main(x):
     out = x.iname+'_'+str(x.nel)+'e'+str(x.norb)+'o'+'_'+str(x.istate)
     mol = gto.M(atom=open('geom_'+x.iname+'.xyz').read(), charge=x.icharge, spin=x.ispin,
                     output=out+'.log', verbose=4, basis=x.ibasis)
                     # symmetry=x.isym, output=out+'.log', verbose=4, basis=x.ibasis)
+    
+    # -------------------- Single Point at Initial Geometry -----------------------
     weights=[1/x.iroots]*x.iroots 
-    # -------------------- HF ---------------------------
     mf = scf.RHF(mol).run()
     molden.from_mo(mol, out+'_hf.molden', mf.mo_coeff)
-
-    # -------------------- Set optimization method ---------------------------
     mc = mcpdft.CASSCF(mf, x.ifunc, x.norb, x.nel, grids_level=x.grid)
     mc.fcisolver = csf_solver(mol, smult=x.ispin+1)
     # mc.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
@@ -205,11 +204,15 @@ def cms_dip(x):
     if x.opt:
         opt_id = 0 if x.method == 'MC-PDFT' else x.istate
         mol_eq = mc.nuc_grad_method().as_scanner(state=opt_id).optimizer().kernel()
-    else: #Preoptimized geometry
+        with open('geom_opt_'+out+'.xyz', 'w') as f:
+            for i in range(mol_eq.natm):
+                coord = str(mol_eq.atom_coord(i,unit='Angstrom'))[1:-1]
+                print(f'{mol_eq.atom_symbol(i)} {coord}', file=f)
+    else: #Read preoptimized geometry
         mol_eq = gto.M(atom=open('geom_opt_'+out+'.xyz').read(), charge=x.icharge, spin=x.ispin,
             symmetry=x.isym, output=out+'.log', verbose=4, basis=x.ibasis)
 
-    # -------------------- Single Point ---------------------------
+    # -------------------- Single Point at Final Geometry -----------------------
     mf_eq = scf.RHF(mol_eq).run()
     mc_eq = mcpdft.CASSCF(mf_eq, x.ifunc, x.norb, x.nel, grids_level=x.grid)
     mc_eq.fcisolver = csf_solver(mol_eq, smult=x.ispin+1)
@@ -224,21 +227,24 @@ def cms_dip(x):
     mc_eq.kernel(mo)
     mo = mc_eq.mo_coeff 
     molden.from_mo(mol_eq, out+'_opt.molden', mc_eq.mo_coeff)
+    get_dipoles(x, mc_eq, mol_eq, out)
+    return
 
+def get_dipoles(x, mc, mol, out):
     # ------------------- CMS-PDFT PDM AND TDM ------------------
-    en = mc_eq.e_states.tolist() #List of CMS energies
-    pdm = mc_eq.dip_moment(state=x.istate, unit='Debye')
+    en = mc.e_states.tolist() #List of CMS energies
+    pdm = mc.dip_moment(state=x.istate, unit='Debye')
     pdm = [pdm]
     save_dipoles(x, 'cms_pdm', 'XYZ', 'PDM', pdm[0])
     if x.istate==0:
-        tdm = [mc_eq.trans_moment(state=[0,i]) for i in range(1,x.iroots)]
+        tdm = [mc.trans_moment(state=[0,i]) for i in range(1,x.iroots)]
         for n in range(1,x.iroots):
             k = n-1 # TDM's id
             tot = np.linalg.norm(tdm[k])/nist.AU2DEBYE
             oscil = (2/3)*(en[n]-en[0])*(tot**2)
             save_dipoles(x, 'cms_tdm', 'XYZ', 'TDM', tdm[k], oscil=oscil, n=n)
     else:
-        tdm = mc_eq.trans_moment(state=[0,x.istate])
+        tdm = mc.trans_moment(state=[0,x.istate])
         tot = np.linalg.norm(tdm)/nist.AU2DEBYE
         oscil = (2/3)*(en[x.istate]-en[0])*(tot**2)
         tdm = [tdm]
@@ -265,23 +271,22 @@ def cms_dip(x):
     #Save final energies
     with open('cms_energies', 'a') as f:
         print(f'{out:<30} {en}', file=f)
-    #-------------------------------------------------------------------
          
     # # ------------------- CAS-CI PDM AND TDM ------------------
-    # pdm = dm_casci(mo,mc_eq,mol_eq,state=[x.istate,x.istate])
+    # pdm = dm_casci(mo,mc,mol_eq,state=[x.istate,x.istate])
     # pdm = [pdm]
     # save_dipoles(x, 'casci_pdm', 'XYZ', 'PDM', pdm[0])
     # #Compute & save TDMs from the optimized excited to ground state
-    # en = mc_eq.e_mcscf
+    # en = mc.e_mcscf
     # if x.istate==0: # from <0| to others
-    #     tdm = [dm_casci(mo,mc_eq,mol_eq,state=[0,n]) for n in range(1,x.iroots)]
+    #     tdm = [dm_casci(mo,mc,mol_eq,state=[0,n]) for n in range(1,x.iroots)]
     #     for n in range(1,x.iroots):
     #         k = n-1 # TDM's id 
     #         tot = np.linalg.norm(tdm[k])/nist.AU2DEBYE
     #         oscil = (2/3)*(en[n]-en[0])*(tot**2)
     #         save_dipoles(x, 'casci_tdm', 'XYZ', 'TDM', tdm[k], oscil=oscil, n=n)
     # else:    
-    #     tdm = dm_casci(mo,mc_eq,mol_eq,state=[x.istate,0])
+    #     tdm = dm_casci(mo,mc,mol_eq,state=[x.istate,0])
     #     tot = np.linalg.norm(tdm)/nist.AU2DEBYE
     #     oscil = (2/3)*(en[x.istate]-en[0])*(tot**2)
     #     tdm = [tdm]
@@ -304,15 +309,6 @@ def cms_dip(x):
     # #Save final energies
     # with open('casci_energies', 'a') as f:
     #     print(f'{out:<30} {en}', file=f)
-  
-    #Save the optimized geometry to the xyz file
-    if x.opt:
-        with open('geom_opt_'+out+'.xyz', 'w') as f:
-            for i in range(mol_eq.natm):
-                coord = str(mol_eq.atom_coord(i,unit='Angstrom'))[1:-1]
-                print(f'{mol_eq.atom_symbol(i)} {coord}', file=f)
-
-            
     return
 
 from dataclasses import dataclass
@@ -374,17 +370,17 @@ x[25] = Molecule('x14_dimethoxybenzene', 10,8,  [30,32,35,36,37,47,50,54])
 
 
 x[25].istate = 0
-cms_dip(x[25])
+main(x[25])
 
 # x[10].istate = 0
 # x[10].opt = False
-# cms_dip(x[21])
+# main(x[21])
 
-# cms_dip(x[18])
+# main(x[18])
 
 # x[3].istate = 0
 # x[3].opt = False
-# cms_dip(x[3])
+# main(x[3])
 
 # v1 = np.array([1,0])
 # # v2 = np.array([-0.882  , 0.019])
