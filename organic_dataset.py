@@ -149,10 +149,10 @@ def get_ang_with_a_axis(dm, rot_mat):
         angles[i] = ang
     return dm_abc, angles
 
-def save_dipoles(x, filename, frame, diptype, dip, oscil=None, n=None):
+def save_dipoles(x, method, frame, diptype, dip, oscil=None, n=None):
     tot = np.linalg.norm(dip)
     xyz = f' |{diptype}| = {tot:4.2f}    {frame} (D): {dip[0]:7.3f} {dip[1]:7.3f} {dip[2]:7.3f}'
-    with open(filename, 'a') as f:
+    with open(method+'_dip_'+frame, 'a') as f:
         if diptype == 'PDM':
             id =f'< {x.istate}|mu|{x.istate}>'
         elif diptype == 'TDM':
@@ -227,87 +227,57 @@ def main(x):
     mc_eq.kernel(mo)
     mo = mc_eq.mo_coeff 
     molden.from_mo(mol_eq, out+'_opt.molden', mc_eq.mo_coeff)
-    get_dipoles(x, mc_eq, mol_eq, out)
+    get_dipoles(x, mc_eq, mol_eq, mo, out)
     return
 
-def get_dipoles(x, mc, mol, out):
-    en = mc.e_states.tolist() #List of CMS energies
-    pdm = mc.dip_moment(state=x.istate, unit='Debye')
+def get_dipoles(x, mc, mol, mo, out):
+    if x.dip_method == 'CMS-PDFT':
+        method = 'cms'
+        en = mc.e_states.tolist()
+        pdm = mc.dip_moment(state=x.istate, unit='Debye')
+    elif x.dip_method == 'CAS-CI':
+        method = 'cas'
+        en = mc.e_mcscf
+        pdm = dm_casci(mo, mc, mol, state=[x.istate,x.istate])
+
     pdm = [pdm]
-    save_dipoles(x, 'cms_pdm', 'XYZ', 'PDM', pdm[0])
+    save_dipoles(x, method, 'XYZ', 'PDM', pdm[0])
     if x.istate==0:
-        tdm = [mc.trans_moment(state=[0,i]) for i in range(1,x.iroots)]
+        if x.dip_method == 'CMS-PDFT': tdm = [mc.trans_moment(state=[0,i]) for i in range(1,x.iroots)]
+        elif x.dip_method == 'CAS-CI': tdm = [dm_casci(mo,mc,mol,state=[0,n]) for n in range(1,x.iroots)]
         for n in range(1,x.iroots):
             k = n-1 # TDM's id
             tot = np.linalg.norm(tdm[k])/nist.AU2DEBYE
             oscil = (2/3)*(en[n]-en[0])*(tot**2)
-            save_dipoles(x, 'cms_tdm', 'XYZ', 'TDM', tdm[k], oscil=oscil, n=n)
+            save_dipoles(x, method, 'XYZ', 'TDM', tdm[k], oscil=oscil, n=n)
     else:
-        tdm = mc.trans_moment(state=[0,x.istate])
+        if x.dip_method == 'CMS-PDFT': tdm = mc.trans_moment(state=[0,x.istate])
+        elif x.dip_method == 'CAS-CI': tdm = dm_casci(mo, mc, mol, state=[x.istate,0])
         tot = np.linalg.norm(tdm)/nist.AU2DEBYE
         oscil = (2/3)*(en[x.istate]-en[0])*(tot**2)
         tdm = [tdm]
-        save_dipoles(x, 'cms_tdm', 'XYZ', 'TDM', tdm[0], oscil=oscil, n=x.istate)
+        save_dipoles(x, method, 'XYZ', 'TDM', tdm[0], oscil=oscil, n=x.istate)
         
-    #Save TDMs in ABC frame
-    pdm_abc, tdm_abc, pdm_ang, tdm_ang = transform_dip(x, mol, pdm, tdm, 'cms')
+    pdm_abc, tdm_abc, pdm_ang, tdm_ang = transform_dip(x, mol, pdm, tdm, method)
     
-    save_angles(x, 'cms', 'PDM', pdm_ang[0])
-    save_dipoles(x, 'cms_pdm_ABC', 'ABC', 'PDM', pdm_abc[0])
+    save_angles(x, method, 'PDM', pdm_ang[0])
+    save_dipoles(x, method, 'ABC', 'PDM', pdm_abc[0])
     if x.istate==0: # from <0| to others
         for n in range(1,x.iroots):
             k = n-1 # TDM's id 
             tot = np.linalg.norm(tdm_abc[k])/nist.AU2DEBYE
             oscil = (2/3)*(en[n]-en[0])*(tot**2)
-            save_dipoles(x, 'cms_tdm_ABC', 'ABC', 'TDM', tdm_abc[k], oscil=oscil, n=n)
-            save_angles(x, 'cms', 'TDM', tdm_ang[k], n=n)
+            save_dipoles(x, method, 'ABC', 'TDM', tdm_abc[k], oscil=oscil, n=n)
+            save_angles(x, method, 'TDM', tdm_ang[k], n=n)
     else:
         tot = np.linalg.norm(tdm_abc[0])/nist.AU2DEBYE
         oscil = (2/3)*(en[x.istate]-en[0])*(tot**2)
-        save_dipoles(x, 'cms_tdm_ABC', 'ABC', 'TDM', tdm_abc[0], oscil=oscil, n=x.istate)
-        save_angles(x, 'cms', 'TDM', tdm_ang[0], n=x.istate)
+        save_dipoles(x, method, 'ABC', 'TDM', tdm_abc[0], oscil=oscil, n=x.istate)
+        save_angles(x, method, 'TDM', tdm_ang[0], n=x.istate)
 
     #Save final energies
-    with open('cms_energies', 'a') as f:
+    with open(method+'_energies', 'a') as f:
         print(f'{out:<30} {en}', file=f)
-         
-    # # ------------------- CAS-CI PDM AND TDM ------------------
-    # pdm = dm_casci(mo,mc,mol_eq,state=[x.istate,x.istate])
-    # pdm = [pdm]
-    # save_dipoles(x, 'casci_pdm', 'XYZ', 'PDM', pdm[0])
-    # #Compute & save TDMs from the optimized excited to ground state
-    # en = mc.e_mcscf
-    # if x.istate==0: # from <0| to others
-    #     tdm = [dm_casci(mo,mc,mol_eq,state=[0,n]) for n in range(1,x.iroots)]
-    #     for n in range(1,x.iroots):
-    #         k = n-1 # TDM's id 
-    #         tot = np.linalg.norm(tdm[k])/nist.AU2DEBYE
-    #         oscil = (2/3)*(en[n]-en[0])*(tot**2)
-    #         save_dipoles(x, 'casci_tdm', 'XYZ', 'TDM', tdm[k], oscil=oscil, n=n)
-    # else:    
-    #     tdm = dm_casci(mo,mc,mol_eq,state=[x.istate,0])
-    #     tot = np.linalg.norm(tdm)/nist.AU2DEBYE
-    #     oscil = (2/3)*(en[x.istate]-en[0])*(tot**2)
-    #     tdm = [tdm]
-    #     save_dipoles(x, 'casci_tdm', 'XYZ', 'TDM', tdm[0], oscil=oscil, n=x.istate)
-
-    # #Save TDMs in ABC frame
-    # pdm_abc, tdm_abc = transform_dip(x, mol, pdm, tdm, 'casci')
-    # save_dipoles(x, 'casci_pdm_ABC', 'ABC', 'PDM', pdm_abc[0])
-    # if x.istate==0: # from <0| to others
-    #     for n in range(1,x.iroots):
-    #         k = n-1 # TDM's id 
-    #         tot = np.linalg.norm(tdm_abc[k])/nist.AU2DEBYE
-    #         oscil = (2/3)*(en[n]-en[0])*(tot**2)
-    #         save_dipoles(x, 'casci_tdm_ABC', 'ABC', 'TDM', tdm_abc[k], oscil=oscil, n=n)
-    # else: 
-    #     tot = np.linalg.norm(tdm_abc[0])/nist.AU2DEBYE
-    #     oscil = (2/3)*(en[x.istate]-en[0])*(tot**2)
-    #     save_dipoles(x, 'casci_tdm_ABC', 'ABC', 'TDM', tdm_abc[0], oscil=oscil, n=x.istate)
-
-    # #Save final energies
-    # with open('casci_energies', 'a') as f:
-    #     print(f'{out:<30} {en}', file=f)
     return
 
 from dataclasses import dataclass
@@ -374,17 +344,4 @@ main(x[25])
 
 # x[10].istate = 0
 # x[10].opt = False
-# main(x[21])
-
-# main(x[18])
-
-# x[3].istate = 0
-# x[3].opt = False
-# main(x[3])
-
-# v1 = np.array([1,0])
-# # v2 = np.array([-0.882  , 0.019])
-# v2 = np.array([-0.758, 0.131])
-# a = findClockwiseAngle(v1,v2)
-# print(a)
-# xyz = np.array([0.692  , 0.337]) 
+# main(x[10])
