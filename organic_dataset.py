@@ -118,7 +118,6 @@ def transform_dip(x, mol, pdm, tdm, method):
 
     # Get vectors for Chemcraft
     render_tdm_pdm(x, mass_center, abc_vec, pdm, tdm, method)
-    # Projection of PDM onto ABC frame 
     origin  = np.eye(3)
     rot_mat = np.linalg.solve(origin,abc_vec)
     pdm_abc, pdm_ang = get_ang_with_a_axis(pdm, rot_mat)
@@ -131,11 +130,10 @@ def get_ang_with_a_axis(dm, rot_mat):
 
     for i in range(len(dm)):
         dm_abc[i]=np.dot(dm[i],rot_mat)
-        #Angle of pdm wrt a-axis
         ini = dm_abc[i]
         fin = np.array([1,0,0])
         dot = np.dot(ini,fin)/(norm(ini)*norm(fin))
-        if abs(dot) < 1e-3: #accurate to 0.06 degrees
+        if abs(dot) < 1e-3:
             ang = 90
         elif abs(dot-1) < 1e-3:
             ang = 0
@@ -234,44 +232,36 @@ def get_dipoles(x, mc, mol, mo, out):
     if x.dip_method == 'CMS-PDFT':
         method = 'cms'
         en = mc.e_states.tolist()
-        pdm = mc.dip_moment(state=x.istate, unit='Debye')
+        pdm = [mc.dip_moment(state=x.istate, unit='Debye')]
     elif x.dip_method == 'CAS-CI':
         method = 'cas'
         en = mc.e_mcscf
-        pdm = dm_casci(mo, mc, mol, state=[x.istate,x.istate])
+        pdm = [dm_casci(mo, mc, mol, state=[x.istate,x.istate])]
 
-    pdm = [pdm]
-    save_dipoles(x, method, 'XYZ', 'PDM', pdm[0])
-    if x.istate==0:
-        if x.dip_method == 'CMS-PDFT': tdm = [mc.trans_moment(state=[0,i]) for i in range(1,x.iroots)]
-        elif x.dip_method == 'CAS-CI': tdm = [dm_casci(mo,mc,mol,state=[0,n]) for n in range(1,x.iroots)]
-        for n in range(1,x.iroots):
-            k = n-1 # TDM's id
-            tot = np.linalg.norm(tdm[k])/nist.AU2DEBYE
-            oscil = (2/3)*(en[n]-en[0])*(tot**2)
-            save_dipoles(x, method, 'XYZ', 'TDM', tdm[k], oscil=oscil, n=n)
-    else:
-        if x.dip_method == 'CMS-PDFT': tdm = mc.trans_moment(state=[0,x.istate])
-        elif x.dip_method == 'CAS-CI': tdm = dm_casci(mo, mc, mol, state=[x.istate,0])
-        tot = np.linalg.norm(tdm)/nist.AU2DEBYE
-        oscil = (2/3)*(en[x.istate]-en[0])*(tot**2)
-        tdm = [tdm]
-        save_dipoles(x, method, 'XYZ', 'TDM', tdm[0], oscil=oscil, n=x.istate)
+    if x.dip_method == 'CMS-PDFT':
+        if x.istate==0: tdm = [mc.trans_moment(state=[0,n]) for n in range(1,x.iroots)]
+        else:           tdm = [mc.trans_moment(state=[x.istate,0])]
+    elif x.dip_method == 'CAS-CI':
+        if x.istate==0: tdm = [dm_casci(mo,mc,mol,state=[0,n]) for n in range(1,x.iroots)]
+        else:           tdm = [dm_casci(mo, mc, mol, state=[x.istate,0])]
         
     pdm_abc, tdm_abc, pdm_ang, tdm_ang = transform_dip(x, mol, pdm, tdm, method)
     
-    save_angles(x, method, 'PDM', pdm_ang[0])
+    save_dipoles(x, method, 'XYZ', 'PDM', pdm[0])
     save_dipoles(x, method, 'ABC', 'PDM', pdm_abc[0])
+    save_angles(x, method, 'PDM', pdm_ang[0])
     if x.istate==0: # from <0| to others
         for n in range(1,x.iroots):
             k = n-1 # TDM's id 
             tot = np.linalg.norm(tdm_abc[k])/nist.AU2DEBYE
             oscil = (2/3)*(en[n]-en[0])*(tot**2)
+            save_dipoles(x, method, 'XYZ', 'TDM', tdm[k], oscil=oscil, n=n)
             save_dipoles(x, method, 'ABC', 'TDM', tdm_abc[k], oscil=oscil, n=n)
             save_angles(x, method, 'TDM', tdm_ang[k], n=n)
     else:
         tot = np.linalg.norm(tdm_abc[0])/nist.AU2DEBYE
         oscil = (2/3)*(en[x.istate]-en[0])*(tot**2)
+        save_dipoles(x, method, 'XYZ', 'TDM', tdm[0], oscil=oscil, n=x.istate)
         save_dipoles(x, method, 'ABC', 'TDM', tdm_abc[0], oscil=oscil, n=x.istate)
         save_angles(x, method, 'TDM', tdm_ang[0], n=x.istate)
 
