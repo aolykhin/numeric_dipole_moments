@@ -1,11 +1,8 @@
 from pyscf import gto, scf, mcscf
-from pyscf.lib import logger
 from mrh.my_pyscf import mcpdft
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.prop.dip_moment.mcpdft import nuclear_dipole
-from scipy import linalg
 import numpy as np
-import os
 from pyscf.tools import molden
 from pyscf.gto import inertia_moment
 from pyscf.data import nist
@@ -93,7 +90,6 @@ def render_tdm_pdm(x, mass_center, abc_vec, pdm, tdm, method):
         print(' ', file=f)
     return
 
-# counterclockwise rotation from vec1 to vec2
 def findClockwiseAngle(ini, fin):
     '''Takes '''
     ind=2 # c-component in abc frame
@@ -165,7 +161,7 @@ def save_dipoles(x, method, frame, diptype, dip, oscil=None, n=None):
 def save_angles(x, method, diptype, ang, n=0):
     with open(method+'_angles', 'a') as f:
         if diptype == 'PDM':
-            id =f'< {x.istate}|mu|{x.istate}>'
+            id = f'< {x.istate}|mu|{x.istate}>'
         elif diptype == 'TDM':
             if x.istate == 0:
                 id = f' <0|mu|{n}>'
@@ -190,9 +186,9 @@ def main(x):
     # mc.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
     # mc.fcisolver.wfnsym = x.irep
     mo = mcscf.sort_mo(mc, mf.mo_coeff, x.cas_list)
-    if x.method == 'MC-PDFT': None
-    elif x.method == 'CMS-PDFT': mc = mc.multi_state(weights,'cms')
-    elif x.method == 'SA-PDFT': mc.state_average(weights)
+    if x.opt_method == 'MC-PDFT': None
+    elif x.opt_method == 'CMS-PDFT': mc = mc.multi_state(weights,'cms')
+    elif x.opt_method == 'SA-PDFT': mc.state_average(weights)
     else: raise NotImplemented('Geometry optimization method is not recognized')
     mc.kernel(mo)
     mo = mc.mo_coeff 
@@ -200,7 +196,7 @@ def main(x):
 
     # ----------------- Geometry Optimization ----------------------
     if x.opt:
-        opt_id = 0 if x.method == 'MC-PDFT' else x.istate
+        opt_id = 0 if x.opt_method == 'MC-PDFT' else x.istate
         mol_eq = mc.nuc_grad_method().as_scanner(state=opt_id).optimizer().kernel()
         with open('geom_opt_'+out+'.xyz', 'w') as f:
             for i in range(mol_eq.natm):
@@ -216,7 +212,7 @@ def main(x):
     mc_eq.fcisolver = csf_solver(mol_eq, smult=x.ispin+1)
     # mc_eq.fcisolver = csf_solver(mol_eq, smult=x.ispin+1, symm=x.isym)
     # mc_eq.fcisolver.wfnsym = x.irep
-    if (x.method == 'CMS-PDFT') or (x.method =='MC-PDFT'):
+    if (x.opt_method == 'CMS-PDFT') or (x.opt_method =='MC-PDFT'):
         mc_eq = mc_eq.multi_state(weights,'cms')
     elif x.method == 'SA-PDFT': mc_eq.state_average(weights)
     else: raise NotImplemented('Geometry optimization method is not recognized')
@@ -329,8 +325,11 @@ x[24] = Molecule('x13_dimethoxybenzene', 10,8,  [24,25,35,36,37,47,50,56])
 x[25] = Molecule('x14_dimethoxybenzene', 10,8,  [30,32,35,36,37,47,50,54])
 
 
-x[25].istate = 0
-main(x[25])
+x[0].istate = 0
+x[0].opt = False
+x[0].opt_method = 'CMS-PDFT'
+x[0].dip_method = 'CAS-CI'
+main(x[0])
 
 # x[10].istate = 0
 # x[10].opt = False
