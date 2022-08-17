@@ -190,6 +190,8 @@ def main(x):
     elif x.opt_method == 'CMS-PDFT': mc = mc.multi_state(weights,'cms')
     elif x.opt_method == 'SA-PDFT': mc.state_average(weights)
     else: raise NotImplemented('Geometry optimization method is not recognized')
+    mc.max_cycle_macro = 600
+    mc.max_cycle = 600
     mc.kernel(mo)
     mo = mc.mo_coeff 
     molden.from_mo(mol, out+'_ini.molden', mc.mo_coeff)
@@ -325,11 +327,21 @@ x[24] = Molecule('x13_dimethoxybenzene', 10,8,  [24,25,35,36,37,47,50,56])
 x[25] = Molecule('x14_dimethoxybenzene', 10,8,  [30,32,35,36,37,47,50,54])
 
 
-x[0].istate = 0
-x[0].opt = False
-x[0].opt_method = 'CMS-PDFT'
-x[0].dip_method = 'CAS-CI'
-main(x[0])
+# x[0].istate = 0
+# x[0].opt = False
+# x[0].opt_method = 'CMS-PDFT'
+# x[0].dip_method = 'CAS-CI'
+# main(x[0])
+
+x[15].istate = 1
+x[15].opt_method = 'CMS-PDFT'
+x[15].dip_method = 'CMS-PDFT'
+main(x[15])
+
+# x[1].istate = 1
+# x[1].opt_method = 'CMS-PDFT'
+# x[1].dip_method = 'CMS-PDFT'
+# main(x[1])
 
 # x[10].istate = 0
 # x[10].opt = False
