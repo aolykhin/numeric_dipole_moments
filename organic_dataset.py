@@ -14,31 +14,30 @@ import math
 def dm_casci(mo,ci,mc,mol,state):
     '''Return diagonal (PDM) and off-diagonal (TDM) dipole moments'''
     from functools import reduce
-    orb = mo[:,mc.ncore:mc.ncore+mc.ncas]
+    ncore = mc.ncore
+    ncas = mc.ncas
+    nocc = ncore + ncas
+    mo_core = mo[:,:ncore]
+    mo_cas = mo[:,ncore:nocc]
+    nelecas = mc.nelecas
+
+    orb = mo[:,ncore:ncore+ncas]
     mass = mol.atom_mass_list()
     coords = mol.atom_coords()
     mass_center = np.einsum('i,ij->j', mass, coords)/mass.sum()
-    
-    
+    with mol.with_common_orig(mass_center):
+        dip_ints = mol.intor('cint1e_r_sph', comp=3)
+        
     if state[1] != state[0]: 
-        with mol.with_common_orig(mass_center):
-            dip_ints = mol.intor('cint1e_r_sph', comp=3)
-        t_dm1 = mc.fcisolver.trans_rdm1(ci[state[1]], ci[state[0]], mc.ncas, mc.nelecas)
+        t_dm1 = mc.fcisolver.trans_rdm1(ci[state[1]], ci[state[0]], ncas, nelecas)
         t_dm1_ao = reduce(np.dot, (orb, t_dm1, orb.T))
         dip = np.einsum('xij,ji->x', dip_ints, t_dm1_ao)
     else:
-        ncore = mc.ncore
-        ncas = mc.ncas
-        nocc = ncore + ncas
-        mo_core = mo[:,:ncore]
-        mo_cas = mo[:,ncore:nocc]
-        casdm1 = mc.fcisolver.make_rdm1([ci[state[1]]], mc.ncas, mc.nelecas)
+        casdm1 = mc.fcisolver.make_rdm1([ci[state[1]]], ncas, nelecas)
         dm_core = np.dot(mo_core, mo_core.T) * 2
         dm_cas = reduce(np.dot, (mo_cas, casdm1, mo_cas.T))
         dm = dm_core + dm_cas
-        with mol.with_common_orig(mass_center):
-            ao_dip = mol.intor_symmetric('int1e_r', comp=3)
-        dip = -np.einsum('xij,ij->x', ao_dip, dm).real
+        dip = -np.einsum('xij,ij->x', dip_ints, dm)
         dip += nuclear_dipole(mc,origin='mass_center')
     dip *= nist.AU2DEBYE
     return dip
@@ -348,22 +347,13 @@ x[24] = Molecule('x1_fluoronaphthalene', 10,10, [32,35,36,37,38,42,45,47,50,53])
 x[25] = Molecule('x2_fluoronaphthalene', 10,10, [31,35,36,37,38,42,45,48,50,52])
 
 
-# x[0].istate = 0
-# x[0].opt = False
-# x[0].opt_method = 'CMS-PDFT'
-# x[0].dip_method = 'CAS-CI'
-# main(x[0])
+x[16].istate = 0
+x[16].opt = False
+x[16].opt_method = 'SA-PDFT'
+x[16].dip_method = 'CAS-CI'
+main(x[16])
 
-x[15].istate = 1
-x[15].opt_method = 'CMS-PDFT'
-x[15].dip_method = 'CMS-PDFT'
-main(x[15])
-
-# x[1].istate = 1
-# x[1].opt_method = 'CMS-PDFT'
-# x[1].dip_method = 'CMS-PDFT'
-# main(x[1])
-
-# x[10].istate = 0
-# x[10].opt = False
-# main(x[10])
+# x[15].istate = 1
+# x[15].opt_method = 'CMS-PDFT'
+# x[15].dip_method = 'CMS-PDFT'
+# main(x[15])
