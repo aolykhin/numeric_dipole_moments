@@ -187,8 +187,6 @@ def main(x):
     molden.from_mo(mol, out+'_hf.molden', mf.mo_coeff)
     mc = mcpdft.CASSCF(mf, x.ifunc, x.norb, x.nel, grids_level=x.grid)
     mc.fcisolver = csf_solver(mol, smult=x.ispin+1)
-    # mc.fcisolver = csf_solver(mol, smult=x.ispin+1, symm=x.isym)
-    # mc.fcisolver.wfnsym = x.irep
     mo = mcscf.sort_mo(mc, mf.mo_coeff, x.cas_list)
     if x.opt_method == 'MC-PDFT': None
     elif x.opt_method == 'CMS-PDFT': mc = mc.multi_state(weights,'cms')
@@ -246,25 +244,28 @@ def main(x):
     return
 
 def get_dipoles(x, mc, mol, mo, ci, out):
+    # fake casscf is required to avoid inheretence issue in mc object
+    from pyscf.grad.sacasscf import Gradients
+    fcasscf = Gradients(mc).make_fcasscf (x.istate)
+    fcasscf.mo_coeff = mo
+    fcasscf.ci = ci[x.istate]
     if ((x.opt_method == 'CMS-PDFT') and (x.dip_method == 'CMS-PDFT')):
         method = 'cms'
         en = mc.e_states.tolist()
         pdm = [mc.dip_moment(state=x.istate, unit='Debye')]
-    elif x.dip_method == 'CAS-CI':
-        # fake casscf is required to avoid inheretence issue in mc object
-        from pyscf.grad.sacasscf import Gradients
-        fcasscf = Gradients(mc).make_fcasscf (x.istate)
-        fcasscf.mo_coeff = mo
-        fcasscf.ci = ci[x.istate]
-        method = 'cas'
+    elif x.dip_method == 'SA-PDFT':
+        method = 'sapdft'
         en = mc.e_mcscf
         pdm = [mc.dip_moment(state=x.istate, unit='Debye')]
-        # pdm = [dm_casci(mo, ci, fcasscf, mol, state=[x.istate,x.istate])]
+    elif x.dip_method == 'CAS-CI':
+        method = 'cas'
+        en = mc.e_mcscf
+        pdm = [dm_casci(mo, ci, fcasscf, mol, state=[x.istate,x.istate])]
 
     if x.dip_method == 'CMS-PDFT':
         if x.istate==0: tdm = [mc.trans_moment(state=[0,n]) for n in range(1,x.iroots)]
         else:           tdm = [mc.trans_moment(state=[x.istate,0])]
-    elif x.dip_method == 'CAS-CI':
+    elif ((x.dip_method == 'CAS-CI') or (x.dip_method == 'SA-PDFT')):
         if x.istate==0: tdm = [dm_casci(fcasscf, mol, mo, ci, state=[0,n]) for n in range(1,x.iroots)]
         else:           tdm = [dm_casci(fcasscf, mol, mo, ci, state=[x.istate,0])]
         
