@@ -150,16 +150,19 @@ def get_ang_with_a_axis(dm, rot_mat):
 def save_dipoles(x, method, frame, diptype, dip, oscil=None, n=None):
     tot = np.linalg.norm(dip)
     xyz = f' |{diptype}| = {tot:4.2f}    {frame} (D): {dip[0]:7.3f} {dip[1]:7.3f} {dip[2]:7.3f}'
-    with open(method+'_dip_'+frame, 'a') as f:
-        if diptype == 'PDM':
-            id =f'< {x.istate}|mu|{x.istate}>'
-        elif diptype == 'TDM':
-            if x.istate == 0:
-                id = f' <0|mu|{n}> {oscil=:4.3f}'
-            else:
-                id = f' <{x.istate}|mu|0> {oscil=:4.3f}'
+    if diptype == 'PDM':
+        id =f'< {x.istate}|mu|{x.istate}>'
+        output = method+'_'+diptype+'_'+str(x.istate)+'_'+frame
+    elif diptype == 'TDM':
+        if x.istate == 0:
+            id = f' <0|mu|{n}> {oscil=:4.3f}'
+            output = method+'_'+diptype+'_'+'0'+str(n)+'_'+frame
         else:
-            raise NotImplementedError
+            id = f' <{x.istate}|mu|0> {oscil=:4.3f}'
+            output = method+'_'+diptype+'_'+str(x.istate)+'0'+'_'+frame
+    else:
+        raise NotImplementedError
+    with open(output, 'a') as f:
         print(f'{x.iname:<30} {diptype}' + id + xyz, file=f)
 
 def save_angles(x, method, diptype, ang, n=0):
