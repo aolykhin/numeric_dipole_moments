@@ -6,12 +6,10 @@ import numpy as np
 from pyscf.tools import molden
 from pyscf.gto import inertia_moment
 from pyscf.data import nist
-from pyscf.gto import inertia_moment
-from pyscf.data import nist
 from numpy.linalg import norm as norm
 import math
 
-def dm_casci(mo,ci,mc,mol,state):
+def dm_casci(mc,mol,mo,ci,state):
     '''Return diagonal (PDM) and off-diagonal (TDM) dipole moments'''
     from functools import reduce
     ncore = mc.ncore
@@ -21,16 +19,23 @@ def dm_casci(mo,ci,mc,mol,state):
     mo_cas = mo[:,ncore:nocc]
     nelecas = mc.nelecas
 
-    orb = mo[:,ncore:ncore+ncas]
+    orbcas = mo[:, ncore:ncore+ncas]
     mass = mol.atom_mass_list()
     coords = mol.atom_coords()
     mass_center = np.einsum('i,ij->j', mass, coords)/mass.sum()
     with mol.with_common_orig(mass_center):
         dip_ints = mol.intor('cint1e_r_sph', comp=3)
-        
+
+    # t_dm1 = mc.fcisolver.trans_rdm1(ci[state[1]], ci[state[0]], ncas, nelecas)
+    # t_dm1_ao = reduce(np.dot, (orbcas, t_dm1, orbcas.T))
+    # dip = -np.einsum('xij,ji->x', dip_ints, t_dm1_ao)
+    # if state[1] == state[0]: 
+    #     dip += nuclear_dipole(mc,origin='mass_center')
+    
+    
     if state[1] != state[0]: 
         t_dm1 = mc.fcisolver.trans_rdm1(ci[state[1]], ci[state[0]], ncas, nelecas)
-        t_dm1_ao = reduce(np.dot, (orb, t_dm1, orb.T))
+        t_dm1_ao = reduce(np.dot, (orbcas, t_dm1, orbcas.T))
         dip = np.einsum('xij,ji->x', dip_ints, t_dm1_ao)
     else:
         casdm1 = mc.fcisolver.make_rdm1([ci[state[1]]], ncas, nelecas)
@@ -246,18 +251,22 @@ def get_dipoles(x, mc, mol, mo, ci, out):
         en = mc.e_states.tolist()
         pdm = [mc.dip_moment(state=x.istate, unit='Debye')]
     elif x.dip_method == 'CAS-CI':
+        # fake casscf is required to avoid inheretence issue in mc object
+        from pyscf.grad.sacasscf import Gradients
+        fcasscf = Gradients(mc).make_fcasscf (x.istate)
+        fcasscf.mo_coeff = mo
+        fcasscf.ci = ci[x.istate]
         method = 'cas'
         en = mc.e_mcscf
-        pdm = [dm_casci(mo, ci, mc, mol, state=[x.istate,x.istate])]
+        pdm = [mc.dip_moment(state=x.istate, unit='Debye')]
+        # pdm = [dm_casci(mo, ci, fcasscf, mol, state=[x.istate,x.istate])]
 
     if x.dip_method == 'CMS-PDFT':
         if x.istate==0: tdm = [mc.trans_moment(state=[0,n]) for n in range(1,x.iroots)]
         else:           tdm = [mc.trans_moment(state=[x.istate,0])]
     elif x.dip_method == 'CAS-CI':
-        if x.opt_method == 'SA-PDFT': ci = mc.ci 
-        # ci = 
-        if x.istate==0: tdm = [dm_casci(mo, ci, mc, mol, state=[0,n]) for n in range(1,x.iroots)]
-        else:           tdm = [dm_casci(mo, ci, mc, mol, state=[x.istate,0])]
+        if x.istate==0: tdm = [dm_casci(fcasscf, mol, mo, ci, state=[0,n]) for n in range(1,x.iroots)]
+        else:           tdm = [dm_casci(fcasscf, mol, mo, ci, state=[x.istate,0])]
         
     pdm_abc, tdm_abc, pdm_ang, tdm_ang = transform_dip(x, mol, pdm, tdm, method)
     
