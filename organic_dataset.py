@@ -147,42 +147,29 @@ def get_ang_with_a_axis(dm, rot_mat):
         angles[i] = ang
     return dm_abc, angles
 
-def save_dipoles(x, method, frame, diptype, dip, oscil=None, n=None):
+def save_dipoles(x, method, frame, dip, ini=None, fin=None, oscil=None):
     tot = np.linalg.norm(dip)
-    xyz = f' |{diptype}| = {tot:4.2f}    {frame} (D): {dip[0]:7.3f} {dip[1]:7.3f} {dip[2]:7.3f}'
-    if diptype == 'PDM':
-        id =f'< {x.istate}|mu|{x.istate}>'
-        output = method+'_'+diptype+'_'+str(x.istate)+'_'+frame
-    elif diptype == 'TDM':
-        if x.istate == 0:
-            id = f' <0|mu|{n}> {oscil=:4.3f}'
-            output = method+'_'+diptype+'_'+'0'+str(n)+'_'+frame
-        else:
-            id = f' <{x.istate}|mu|0> {oscil=:4.3f}'
-            output = method+'_'+diptype+'_'+str(x.istate)+'0'+'_'+frame
-    else:
-        raise NotImplementedError
+    diptype = 'PDM' if ini == fin else 'TDM'
+    id =f'< {ini}|mu|{fin}> = {tot:4.2f}'
+    xyz = f'     {frame} (D): {dip[0]:7.3f} {dip[1]:7.3f} {dip[2]:7.3f}'
+    output = method+'_'+diptype+'_'+str(ini)+str(fin)+'_'+frame
     with open(output, 'a') as f:
-        print(f'{x.iname:<30} {diptype}' + id + xyz, file=f)
-
-def save_angles(x, method, diptype, ang, n=0):
-    with open(method+'_angles', 'a') as f:
-        if diptype == 'PDM':
-            id = f'< {x.istate}|mu|{x.istate}>'
-        elif diptype == 'TDM':
-            if x.istate == 0:
-                id = f' <0|mu|{n}>'
-            else:
-                id = f' <{x.istate}|mu|0>'
+        if oscil: 
+            print(f'{x.iname:<30}' + id + xyz + f' {oscil=:4.3f}', file=f)
         else:
-            raise NotImplementedError
+            print(f'{x.iname:<30}' + id + xyz, file=f)
+
+def save_angles(x, method, ang, ini=None, fin=None):
+    diptype = 'PDM' if ini == fin else 'TDM'
+    id =f'< {ini}|mu|{fin}>'
+    output = method+'_'+'angles'+'_'+diptype+'_'+str(ini)+str(fin)
+    with open(output, 'a') as f:
         print(f'{x.iname:<30} {diptype} theta for {id} is {ang:5.1f} degrees', file=f)
 
 def main(x):
     out = x.iname+'_'+str(x.nel)+'e'+str(x.norb)+'o'+'_'+str(x.istate)
     mol = gto.M(atom=open('geom_'+x.iname+'.xyz').read(), charge=x.icharge, spin=x.ispin,
                     output=out+'.log', verbose=4, basis=x.ibasis)
-                    # symmetry=x.isym, output=out+'.log', verbose=4, basis=x.ibasis)
     
     # -------------------- Single Point at Initial Geometry -----------------------
     weights=[1/x.iroots]*x.iroots 
@@ -263,7 +250,7 @@ def get_dipoles(x, mc, mol, mo, ci, out):
     elif x.dip_method == 'CAS-CI':
         method = 'cas'
         en = mc.e_mcscf
-        pdm = [dm_casci(mo, ci, fcasscf, mol, state=[x.istate,x.istate])]
+        pdm = [dm_casci(fcasscf, mol, mo, ci, state=[x.istate,x.istate])]
 
     if x.dip_method == 'CMS-PDFT':
         if x.istate==0: tdm = [mc.trans_moment(state=[0,n]) for n in range(1,x.iroots)]
@@ -274,23 +261,23 @@ def get_dipoles(x, mc, mol, mo, ci, out):
         
     pdm_abc, tdm_abc, pdm_ang, tdm_ang = transform_dip(x, mol, pdm, tdm, method)
     
-    save_dipoles(x, method, 'XYZ', 'PDM', pdm[0])
-    save_dipoles(x, method, 'ABC', 'PDM', pdm_abc[0])
-    save_angles(x, method, 'PDM', pdm_ang[0])
+    save_dipoles(x, method, 'XYZ', pdm[0], ini=x.istate, fin=x.istate)
+    save_dipoles(x, method, 'ABC', pdm_abc[0], ini=x.istate, fin=x.istate)
+    save_angles(x, method, pdm_ang[0], ini=x.istate, fin=x.istate)
     if x.istate==0: # from <0| to others
         for n in range(1,x.iroots):
             k = n-1 # TDM's id 
             tot = np.linalg.norm(tdm_abc[k])/nist.AU2DEBYE
             oscil = (2/3)*(en[n]-en[0])*(tot**2)
-            save_dipoles(x, method, 'XYZ', 'TDM', tdm[k], oscil=oscil, n=n)
-            save_dipoles(x, method, 'ABC', 'TDM', tdm_abc[k], oscil=oscil, n=n)
-            save_angles(x, method, 'TDM', tdm_ang[k], n=n)
+            save_dipoles(x, method, 'XYZ', tdm[k], ini=0, fin=n, oscil=oscil)
+            save_dipoles(x, method, 'ABC', tdm_abc[k], ini=0, fin=n, oscil=oscil)
+            save_angles(x, method, tdm_ang[k], ini=0, fin=n)
     else:
         tot = np.linalg.norm(tdm_abc[0])/nist.AU2DEBYE
         oscil = (2/3)*(en[x.istate]-en[0])*(tot**2)
-        save_dipoles(x, method, 'XYZ', 'TDM', tdm[0], oscil=oscil, n=x.istate)
-        save_dipoles(x, method, 'ABC', 'TDM', tdm_abc[0], oscil=oscil, n=x.istate)
-        save_angles(x, method, 'TDM', tdm_ang[0], n=x.istate)
+        save_dipoles(x, method, 'XYZ', tdm[0], ini=x.istate, fin=0, oscil=oscil)
+        save_dipoles(x, method, 'ABC', tdm_abc[0], ini=x.istate, fin=0, oscil=oscil)
+        save_angles(x, method, tdm_ang[0], ini=x.istate, fin=0,)
 
     #Save final energies
     with open(method+'_energies', 'a') as f:
