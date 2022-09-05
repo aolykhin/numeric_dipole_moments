@@ -245,7 +245,7 @@ def get_dipoles(x, mc, mol, mo, ci, out):
         pdm = [mc.dip_moment(state=x.istate, unit='Debye')]
     elif x.dip_method == 'SA-PDFT':
         method = 'sapdft'
-        en = mc.e_mcscf
+        en = mc.e_states
         pdm = [mc.dip_moment(state=x.istate, unit='Debye')]
     elif x.dip_method == 'CAS-CI':
         method = 'cas'
@@ -280,8 +280,10 @@ def get_dipoles(x, mc, mol, mo, ci, out):
         save_angles(x, method, tdm_ang[0], ini=x.istate, fin=0,)
 
     #Save final energies
-    with open(method+'_energies', 'a') as f:
-        print(f'{out:<30} {en}', file=f)
+    output = method+'_'+'energies'+'_'+str(x.istate)
+    with open(output, 'a') as f:
+        if len(en) > 2: raise RuntimeError('number of roots is limited to 2')
+        print(f'{x.iname:<30} {en[0]:6.12f}  {en[1]:6.12f}', file=f)
     return
 
 from dataclasses import dataclass
@@ -313,15 +315,11 @@ class Molecule:
         if self.opt_method == 'MC-PDFT' and self.istate !=0:
             raise ValueError('MC-PDFT support only the ground state but Fully-translated functionals were not tested')
 
-
-x=[None]*26
+x=[None]*100
 x[0]  = Molecule('indole'              , 10,9,  [23,28,29,30,31,37,40,42,45])
 x[1]  = Molecule('x2_cyanoindole'      , 14,13, [25,31,33,34,35,36,37, 41,44,48,49,53,57])
 x[2]  = Molecule('x3_cyanoindole'      , 14,13, [25,32,33,34,35,36,37, 41,45,47,49,50,57])
-#min of the 3d state (2d excited)
-x[3] = Molecule('x4_cyanoindole'      , 14,13, [27,32,33,34,35,36,37, 39,44,47,49,50,59])
-# x[3] = Molecule('x4_cyanoindole'      , 14,13, [26,31,33,34,35,36,37, 40,44,47,49,51,59])
-# x[3]  = Molecule('x4_cyanoindole'      , 14,13, [26,30,33,34,35,36,37, 42,44,48,49,53,61])
+x[3]  = Molecule('x4_cyanoindole'      , 14,13, [27,32,33,34,35,36,37, 39,44,47,49,50,59])
 x[4]  = Molecule('x5_cyanoindole'      , 14,13, [26,31,33,34,35,36,37, 41,44,46,49,50,58])
 x[5]  = Molecule('x4_fluoroindole'     , 10,9,  [27,32,33,34,35,41,43,46,47])
 x[6]  = Molecule('x5_fluoroindole'     , 10,9,  [27,32,33,34,35,40,44,45,51])
@@ -335,22 +333,24 @@ x[13] = Molecule('cis_2_naphthol'      , 12,11, [27,32,35,36,37,38,42,46,48,50,5
 x[14] = Molecule('trans_2_naphthol'    , 12,11, [28,32,35,36,37,38,42,45,48,50,53])
 x[15] = Molecule('benzonitrile'        , 10,10, [21,24,25,26,27,29,32,43,45,46])
 x[16] = Molecule('phenol'              ,  8,7,  [19,23,24,25,31,33,34])
-x[17] =  Molecule('anisole'             ,  8,7,  [23,27,28,29,36,39,40])
+x[17] = Molecule('anisole'             ,  8,7,  [23,27,28,29,36,39,40])
 x[18] = Molecule('x13_dimethoxybenzene', 10,8,  [24,25,35,36,37,47,50,56])
 x[19] = Molecule('x14_dimethoxybenzene', 10,8,  [30,32,35,36,37,47,50,54])
-#------------- Extra --------------
-x[20] = Molecule('fluorobenzene'       , 6,6,   [23,24,25,31,32,34])
-x[21] = Molecule('anti_4_methoxyindole', 12,10, [25,28,36,37,38,39,45,46,50,51])
-x[22] = Molecule('propynal'            ,  8,7,  [11,12,13,14,16,21,22])
-x[23] = Molecule('formaldehyde'        ,  6, 6, [6,7,8,9,10,11])
-x[24] = Molecule('x1_fluoronaphthalene', 10,10, [32,35,36,37,38,42,45,47,50,53])
-x[25] = Molecule('x2_fluoronaphthalene', 10,10, [31,35,36,37,38,42,45,48,50,52])
+#------------------------------- Extra -------------------------------------------
+# x[3]  = Molecule('x4_cyanoindole'      , 14,13, [26,31,33,34,35,36,37, 40,44,47,49,51,59])
+# x[3]  = Molecule('x4_cyanoindole'      , 14,13, [26,30,33,34,35,36,37, 42,44,48,49,53,61])
+# x[20] = Molecule('fluorobenzene'       , 6,6,   [23,24,25,31,32,34])
+# x[21] = Molecule('anti_4_methoxyindole', 12,10, [25,28,36,37,38,39,45,46,50,51])
+# x[22] = Molecule('propynal'            ,  8,7,  [11,12,13,14,16,21,22])
+# x[23] = Molecule('formaldehyde'        ,  6, 6, [6,7,8,9,10,11])
+# x[24] = Molecule('x1_fluoronaphthalene', 10,10, [32,35,36,37,38,42,45,47,50,53])
+# x[25] = Molecule('x2_fluoronaphthalene', 10,10, [31,35,36,37,38,42,45,48,50,52])
 
 
 x[16].istate = 0
 x[16].opt = False
 x[16].opt_method = 'SA-PDFT'
-x[16].dip_method = 'CAS-CI'
+x[16].dip_method = 'SA-PDFT'
 main(x[16])
 
 # x[15].istate = 1
